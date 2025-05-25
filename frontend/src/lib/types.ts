@@ -151,3 +151,22 @@ export type MacdHistoryEntry = {
   signalLine: number;
   histogram: number;
 };
+
+export type SignalRecord = {
+  date: string;
+  allSignals: Record<string, boolean>;
+};
+
+export type TriggeredSignalRecord = {
+  date: string;
+  triggeredSignals: string[];
+};
+
+export type StockSignalResponse = {
+  symbol: string;
+  name: string;
+  price: number;
+  change?: number;
+  signals: Record<string, SignalRecord[]>;
+  triggeredSignals: Record<string, TriggeredSignalRecord[]>;
+};

@@ -1,15 +1,16 @@
 import { ArrowLeft, ExternalLink } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import React, { useEffect, useState } from 'react';
-import { SignalDisplayConfig, SignalFlags, SignalType, SingleStockWithMacdHistory, StockWithMacdHistory, TimeFrame } from '@/lib/types';
+import { SignalDisplayConfig, SignalFlags, SignalType, SingleStockWithMacdHistory, StockSignalResponse, StockWithMacdHistory, TimeFrame } from '@/lib/types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatPercent, formatPrice } from '@/lib/macdService';
-import { getStockBySymbol, getTimeFrames } from '@/lib/stockService';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import SignalHistoryTable from '@/components/SignalHistoryTable';
 import SignalIndicator from '@/components/SignalIndicator';
+import { getStockTriggeredSignals } from '@/lib/supabaseService';
+import { getTimeFrames } from '@/lib/stockService';
 import mappingDirectoryTradV from '@/lib/mapping_directoryTradV.json';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -86,12 +87,11 @@ const TradingViewWidget: React.FC<{ symbol: string }> = ({ symbol }) => {
 const StockDetail: React.FC = () => {
   const { symbol: encodedSymbol } = useParams<{ symbol: string }>();
   const symbol = encodedSymbol ? decodeURIComponent(encodedSymbol) : '';
-  const [stock, setStock] = useState<SingleStockWithMacdHistory | null>(null);
+  const [stock, setStock] = useState<StockSignalResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedTimeFrame, setSelectedTimeFrame] = useState<TimeFrame>('1d');
   const { toast } = useToast();
   const navigate = useNavigate();
-  const timeFrames = getTimeFrames();
 
 
   useEffect(() => {
@@ -100,12 +100,9 @@ const StockDetail: React.FC = () => {
       
       setLoading(true);
       try {
-        const stockData = await getStockBySymbol(symbol);
+        const stockData = await getStockTriggeredSignals(symbol);
         if (stockData) {
           setStock(stockData);
-          if (stockData.signals && Object.keys(stockData.signals).length > 0) {
-            setSelectedTimeFrame(Object.keys(stockData.signals)[0] as TimeFrame);
-          }
         } else {
           toast({
             title: 'Stock not found',
@@ -161,13 +158,16 @@ const StockDetail: React.FC = () => {
     );
   }
 
-  const selectedSignals = stock?.signals[selectedTimeFrame]?.[0] ? Object.entries(stock.signals[selectedTimeFrame][0])
-    .filter(([key]) => key.startsWith('signal_'))
-    .map(([key, value]) => ({
-      type: key.toUpperCase() as SignalType,
-      value: value as boolean,
-      date: stock.signals[selectedTimeFrame][0].date
-    })) : [];
+  const selectedSignals = stock?.signals[selectedTimeFrame]?.[0]?.allSignals
+  ? Object.entries(stock.signals[selectedTimeFrame][0].allSignals)
+      .filter(([key]) => key.startsWith('signal_'))
+      .map(([key, value]) => ({
+        type: key.toUpperCase() as SignalType,
+        value,
+        date: stock.signals[selectedTimeFrame][0].date,
+      }))
+  : [];
+
 
   return (
     <div className="container mx-auto py-8 px-4 sm:px-6 lg:max-w-6xl animate-fade-in">

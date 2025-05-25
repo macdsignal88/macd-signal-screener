@@ -1,6 +1,7 @@
-import { MacdData, MacdHistoryEntry, MacdHistoryItem, MacdSignal, PriceData, SignalFlags, SingleStockWithMacdHistory, Stock, StockSignals, StockWithMacdHistory, TimeFrame } from './types';
+import { MacdData, MacdHistoryEntry, MacdHistoryItem, MacdSignal, PriceData, SignalFlags, SingleStockWithMacdHistory, Stock, StockSignalResponse, StockSignals, StockWithMacdHistory, TimeFrame } from './types';
 
 import { createClient } from '@supabase/supabase-js';
+import mappingDirectory from '../lib/mapping_directory.json';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -133,124 +134,6 @@ export type SignalTriggered = {
 };
 
 
-export const getStockBySymbolFromSupabase = async (
-  symbol: string
-): Promise<StockWithMacdHistory | undefined> => {
-  try {
-    const { data: signals, error } = await supabase
-    .from('macd_signals')
-    .select('*')
-    .eq('symbol', symbol)
-    .order('date', { ascending: false })  // newest first
-    .limit(100);
-
-    if (error) throw error;
-    if (!signals || signals.length === 0) return undefined;
-
-    const macdHistory = signals.map((signal) => ({
-      date: signal.date,
-      macdLine: signal.macd_line,
-      signalLine: signal.signal_line,
-      histogram: signal.macd_histogram,
-    }));
-
-    const priceHistory = signals.map((signal) => ({
-      date: signal.date,
-      price: signal.close_price,
-    }));
-
-    const signalsByTimeframe: Record<string, SignalTriggered[]> = {};
-    const activeSignalsByTimeframe: Record<string, Set<string>> = {};
-    
-    // Group signals by timeframe first
-    const groupedByTimeframe: Record<string, typeof signals> = {};
-    
-    for (const signal of signals) {
-      if (!groupedByTimeframe[signal.timeframe]) {
-        groupedByTimeframe[signal.timeframe] = [];
-      }
-      groupedByTimeframe[signal.timeframe].push(signal);
-    }
-    
-    // Now process each timeframe separately
-    for (const timeframe in groupedByTimeframe) {
-      const timeframeSignals = groupedByTimeframe[timeframe];
-      activeSignalsByTimeframe[timeframe] = new Set<string>();
-      signalsByTimeframe[timeframe] = [];
-    
-      for (let i = 0; i < timeframeSignals.length; i++) {
-        const curr = timeframeSignals[i];
-        const triggeredSignals: string[] = [];
-    
-        console.log(`\n🔍 Checking date: ${curr.date} | Timeframe: ${timeframe}`);
-    
-        // Check for signal 7 first (cycle end signal)
-        const isCycleEnd = curr.signal_7 === true;
-        if (isCycleEnd) {
-          console.log('🔄 Cycle end detected - resetting all signals');
-          activeSignalsByTimeframe[timeframe].clear();
-          triggeredSignals.push('signal_7');
-        } else {
-          // Process signals 1-6 only if we're not in a cycle end
-          for (let j = 1; j <= 6; j++) {
-            const key = `signal_${j}`;
-            const isActive = curr[key] === true;
-            const activeSignals = activeSignalsByTimeframe[timeframe];
-            const wasActive = activeSignals.has(key);
-    
-            if (isActive && !wasActive) {
-              console.log(`✅ New trigger: ${key}`);
-              triggeredSignals.push(key);
-              activeSignals.add(key);
-            } else if (!isActive && wasActive) {
-              console.log(`❌ Signal off: ${key}`);
-              activeSignals.delete(key);
-            } else {
-              console.log(`⏸ No change: ${key} | Status: ${isActive ? "active" : "inactive"}`);
-            }
-          }
-        }
-    
-        console.log(`📌 Result on ${curr.date}: triggeredSignals = [${triggeredSignals.join(", ")}]`);
-    
-        signalsByTimeframe[timeframe].push({
-          date: curr.date,
-          triggeredSignals,
-        });
-      }
-    }
-    
-    const latest = signals[signals.length - 1];
-    const previous = signals[signals.length - 2];
-
-    const change =
-      latest && previous
-        ? latest.close_price - previous.close_price
-        : undefined;
-
-    const priceChangePercent =
-      latest && previous && previous.close_price !== 0
-        ? ((latest.close_price - previous.close_price) / previous.close_price) * 100
-        : undefined;
-
-    return {
-      symbol: latest.symbol,
-      name: latest.symbol,
-      price: latest.close_price,
-      change,
-      priceChangePercent,
-      macdHistory,
-      priceHistory,
-      signals: signalsByTimeframe,
-    };
-  } catch (error) {
-    console.error('Error fetching stock from Supabase:', error);
-    throw error;
-  }
-};
-
-
-
 // Types
 type SortConfig = { field: string; direction: 'asc' | 'desc' };
 type GroupedData = Record<string, {
@@ -291,6 +174,23 @@ const getLatestSignals = async (assetType?: string, searchQuery?: string) => {
   if (error) throw error;
   return data;
 };
+
+const getSingleSignal = async (symbol: string, searchQuery?: string) => {
+  let query =supabase
+  .from('macd_signals')
+  .select('*')
+  .eq('symbol', symbol)
+  .order('date', { ascending: false });
+
+  if (searchQuery) {
+    query = query.or(`symbol.ilike.%${searchQuery}%,name.ilike.%${searchQuery}%`);
+  }
+  
+  const { data, error } = await query;
+  if (error) throw error;
+  return data;
+};
+
 
 export const getWatchlistSignals = async (
   symbols: string[],
@@ -590,5 +490,138 @@ export const fetchWatchlistStocksFromSupabase = async (
   } catch (error) {
     console.error('Error fetching watchlist stocks:', error);
     return { data: [], total: 0, uniqueSymbolCount: 0 };
+  }
+};
+
+type SignalKey = `signal_${1 | 2 | 3 | 4 | 5 | 6 | 7}`;
+
+type Signal = {
+  date: string;
+  timeframe: string;
+  close_price: number;
+  symbol: string;
+} & {
+  [K in SignalKey]: boolean;
+};
+
+
+type SignalEntry = {
+  date: string;
+  allSignals: Record<string, boolean>;
+};
+
+type TriggeredEntry = {
+  date: string;
+  triggeredSignals: string[];
+};
+
+const extractAllSignals = (signal: Signal): Record<string, boolean> => {
+  const result: Record<string, boolean> = {};
+  for (let i = 1; i <= 7; i++) {
+    const key = `signal_${i}`;
+    result[key] = signal[key] === true;
+  }
+  return result;
+};
+
+const detectTriggeredSignals = (
+  signal: Signal,
+  activeSet: Set<string>
+): string[] => {
+  const triggered: string[] = [];
+
+  const isCycleEnd = signal.signal_7 === true;
+
+  if (isCycleEnd) {
+    for (let i = 1; i <= 6; i++) {
+      const key = `signal_${i}`;
+      if (signal[key] && !activeSet.has(key)) {
+        triggered.push(key);
+      }
+    }
+    triggered.push('signal_7');
+    activeSet.clear(); // reset after cycle
+  } else {
+    for (let i = 1; i <= 6; i++) {
+      const key = `signal_${i}`;
+      if (signal[key] && !activeSet.has(key)) {
+        triggered.push(key);
+        activeSet.add(key);
+      } else if (!signal[key] && activeSet.has(key)) {
+        activeSet.delete(key);
+      }
+    }
+  }
+
+  return triggered;
+};
+
+export const getStockTriggeredSignals = async (
+  symbol: string
+): Promise<StockSignalResponse | undefined> => {
+  try {
+    const signals = await getSingleSignal(symbol);
+    if (!signals || signals.length === 0) return undefined;
+
+    const groupedByTimeframe: Record<string, Signal[]> = {};
+    for (const signal of signals) {
+      if (!groupedByTimeframe[signal.timeframe]) {
+        groupedByTimeframe[signal.timeframe] = [];
+      }
+      groupedByTimeframe[signal.timeframe].push(signal);
+    }
+
+    const signalsByTimeframe: Record<string, SignalEntry[]> = {};
+    const triggeredSignalsByTimeframe: Record<string, TriggeredEntry[]> = {};
+    const activeSignalsByTimeframe: Record<string, Set<string>> = {};
+
+    for (const timeframe in groupedByTimeframe) {
+      const signals = groupedByTimeframe[timeframe].slice().reverse();
+      const activeSet = new Set<string>();
+      activeSignalsByTimeframe[timeframe] = activeSet;
+      signalsByTimeframe[timeframe] = [];
+      triggeredSignalsByTimeframe[timeframe] = [];
+
+      for (const signal of signals) {
+        const allSignals = extractAllSignals(signal);
+        const triggeredSignals = detectTriggeredSignals(signal, activeSet);
+
+        signalsByTimeframe[timeframe].push({
+          date: signal.date,
+          allSignals,
+        });
+
+        triggeredSignalsByTimeframe[timeframe].push({
+          date: signal.date,
+          triggeredSignals,
+        });
+      }
+    }
+
+    const latest = signals[signals.length - 1];
+    const previous = signals[signals.length - 2];
+    const change = latest && previous
+      ? latest.close_price - previous.close_price
+      : undefined;
+
+    let companyName = latest.symbol;
+    for (const category in mappingDirectory) {
+      if (mappingDirectory[category][latest.symbol]) {
+        companyName = mappingDirectory[category][latest.symbol];
+        break;
+      }
+    }
+
+    return {
+      symbol: latest.symbol,
+      name: companyName,
+      price: latest.close_price,
+      change,
+      signals: signalsByTimeframe,
+      triggeredSignals: triggeredSignalsByTimeframe,
+    };
+  } catch (error) {
+    console.error('Error fetching stock from Supabase:', error);
+    throw error;
   }
 };

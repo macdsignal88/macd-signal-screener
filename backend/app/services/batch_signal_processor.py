@@ -74,6 +74,8 @@ class BatchSignalProcessor:
                         'Close': 'last',
                         'Volume': 'sum'
                     }).dropna()
+                    now = pd.Timestamp.now(tz=df.index.tz) if df.index.tz else pd.Timestamp.now()
+                    df = df[df.index <= now]
                 except Exception as e:
                     print(f"❌ Resampling failed for {symbol}: {e}")
                     continue

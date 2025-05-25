@@ -1,4 +1,4 @@
-import { SignalFlags, SignalType, SingleStockWithMacdHistory, TimeFrame } from '@/lib/types';
+import { SignalFlags, SignalType, SingleStockWithMacdHistory, StockSignalResponse, TimeFrame } from '@/lib/types';
 
 import React from 'react';
 
@@ -42,7 +42,7 @@ const DEFAULT_SIGNAL_CONFIG = [
 ];
 
 interface SignalHistoryTableProps {
-    signals: SingleStockWithMacdHistory;
+    signals: StockSignalResponse;
     selectedTimeFrame: TimeFrame;
   }
   
@@ -50,7 +50,10 @@ interface SignalHistoryTableProps {
     signals,
     selectedTimeFrame,
   }) => {
-    const signalHistory = signals.signals[selectedTimeFrame];
+    console.log("SIGNALSS", signals)
+    const signalHistory = signals.triggeredSignals[selectedTimeFrame];
+
+    console.log("detailedsignale", signalHistory)
   
     // 1. Filter out entries with no *new* triggered signals
     const filteredSignalHistory = signalHistory
