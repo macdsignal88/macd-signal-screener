@@ -40,8 +40,14 @@ class BatchMacdService:
         return result
 
 
-    def detect_signals(self, macd_data: Dict[str, List[float]], close_prices: List[float], ema_midpoints: List[float], dates) -> pd.DataFrame:
-        """Detect MACD signals from the data."""
+    def detect_signals(
+        self,
+        macd_data: Dict[str, List[float]],
+        close_prices: List[float],
+        ema_midpoints: List[float],
+        dates
+    ) -> pd.DataFrame:
+        """Detect MACD signals from the data with persistent signal states across days."""
 
         # Initialize DataFrame
         self.data = pd.DataFrame({
@@ -53,13 +59,14 @@ class BatchMacdService:
             'date': dates
         })
 
-        # Initialize signal columns and metadata
+        # Add signal columns and metadata
         for n in range(1, 8):
             self.data[f'signal_{n}'] = False
         self.data['meta_cycle_id'] = pd.NA
         self.data['meta_condition'] = pd.NA
         self.data['triggered_signals'] = None
 
+        # Cycle tracking
         current_cycle_step = 0
         cycle_id = 0
         cycle_memory = {f'signal_{n}': False for n in range(1, 8)}
@@ -73,33 +80,55 @@ class BatchMacdService:
                 macd, signal, hist = row['macd_line'], row['signal_line'], row['macd_histogram']
                 prev_macd, prev_signal, prev_hist = prev_row['macd_line'], prev_row['signal_line'], prev_row['macd_histogram']
                 prev2_macd, prev2_hist = prev2_row['macd_line'], prev2_row['macd_histogram']
-
                 close, ema_mid = row['close'], row['ema_midpoint']
                 ema_mid = float(ema_mid) if pd.notna(ema_mid) else None
 
-                # Save current state before possible changes
+                # Carry forward previous signals
+                for n in range(1, 8):
+                    self.data.at[i, f'signal_{n}'] = self.data.at[i - 1, f'signal_{n}']
+
+                # Save previous state
                 prev_cycle_memory = cycle_memory.copy()
                 triggered = []
 
                 def trigger_signal(n: int, condition: str):
-                    nonlocal triggered
-                    key = f'signal_{n}'
-                    cycle_memory[key] = True
-                    self.data.at[i, key] = True
-                    self.data.at[i, 'meta_condition'] = condition
-                    triggered.append(key)
+                    nonlocal triggered, cycle_memory
 
-                # Start of a new bearish MACD crossover cycle
+                    if n == 1:
+                        # New cycle: reset all signals
+                        cycle_memory = {f'signal_{k}': False for k in range(1, 8)}
+                        for k in range(1, 8):
+                            self.data.at[i, f'signal_{k}'] = False
+                        cycle_memory['signal_1'] = True
+                        self.data.at[i, 'signal_1'] = True
+
+                    elif n == 7:
+                        # End cycle: reset signals 1–6
+                        for k in range(1, 7):
+                            cycle_memory[f'signal_{k}'] = False
+                            self.data.at[i, f'signal_{k}'] = False
+                        cycle_memory['signal_7'] = True
+                        self.data.at[i, 'signal_7'] = True
+
+                    else:
+                        # Accumulate all signals up to n
+                        for k in range(1, n + 1):
+                            cycle_memory[f'signal_{k}'] = True
+                            self.data.at[i, f'signal_{k}'] = True
+
+                    self.data.at[i, 'meta_condition'] = condition
+                    triggered.append(f'signal_{n}')
+
+                # Start new cycle: bearish MACD crossover above zero
                 if (prev_macd > prev_signal) and (macd < signal) and (macd > 0):
                     cycle_id += 1
                     current_cycle_step = 1
-                    cycle_memory = {f'signal_{n}': False for n in range(1, 8)}
                     trigger_signal(1, "Bearish MACD crossover above zero")
                     self.data.at[i, 'meta_cycle_id'] = cycle_id
                     self.data.at[i, 'triggered_signals'] = triggered
                     continue
 
-                # Continue cycle progression
+                # Ongoing cycle
                 if current_cycle_step >= 1:
                     self.data.at[i, 'meta_cycle_id'] = cycle_id
 
@@ -126,11 +155,11 @@ class BatchMacdService:
                     if current_cycle_step == 6 and (prev_macd < prev_signal) and (macd > signal):
                         trigger_signal(7, "Bullish MACD crossover")
                         current_cycle_step = 0
-                        # Reset signals after bullish crossover
-                        for n in range(1, 7):
-                            cycle_memory[f'signal_{n}'] = False
+                        # Reset cycle_memory to only signal_7
+                        cycle_memory = {f'signal_{n}': False for n in range(1, 8)}
+                        cycle_memory['signal_7'] = True
 
-                # Detect newly triggered signals (post-initialization)
+                # Detect new triggered signals compared to previous memory
                 for n in range(1, 8):
                     key = f'signal_{n}'
                     if cycle_memory[key] and not prev_cycle_memory[key] and key not in triggered:
@@ -142,6 +171,7 @@ class BatchMacdService:
                 print(f"Error processing index {i}: {e}")
 
         return self.data
+
 
 
 
