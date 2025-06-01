@@ -237,7 +237,7 @@ const StockDetail: React.FC = () => {
                     ))}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+                {/* <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
                   {selectedSignals.map(signal => {
                     const signalName = signal.type.replace(/_/g, ' ');
                     return (
@@ -264,7 +264,7 @@ const StockDetail: React.FC = () => {
                       </Card>
                     );
                   })}
-                </div>
+                </div> */}
 
                 <SignalHistoryTable 
                   signals={stock}
