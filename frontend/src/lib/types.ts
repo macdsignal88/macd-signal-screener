@@ -142,7 +142,7 @@ export type SingleStockWithMacdHistory = {
 };
 export type SignalTriggered = {
   date: string;
-  triggeredSignals: string[]; // e.g. ['signal_1', 'signal_4']
+  triggered_signals: string[]; // e.g. ['signal_1', 'signal_4']
 };
 
 export type MacdHistoryEntry = {
@@ -159,7 +159,7 @@ export type SignalRecord = {
 
 export type TriggeredSignalRecord = {
   date: string;
-  triggeredSignals: string[];
+  triggered_signals: string[];
 };
 
 export type StockSignalResponse = {

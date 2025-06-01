@@ -1,4 +1,4 @@
-import { MacdData, MacdHistoryEntry, MacdHistoryItem, MacdSignal, PriceData, SignalFlags, SingleStockWithMacdHistory, Stock, StockSignalResponse, StockSignals, StockWithMacdHistory, TimeFrame } from './types';
+import { MacdData, MacdHistoryEntry, MacdHistoryItem, MacdSignal, PriceData, SignalFlags, SingleStockWithMacdHistory, Stock, StockSignalResponse, StockSignals, StockWithMacdHistory, TimeFrame, TriggeredSignalRecord } from './types';
 
 import { createClient } from '@supabase/supabase-js';
 import mappingDirectory from '../lib/mapping_directory.json';
@@ -512,48 +512,7 @@ type SignalEntry = {
 
 type TriggeredEntry = {
   date: string;
-  triggeredSignals: string[];
-};
-
-const extractAllSignals = (signal: Signal): Record<string, boolean> => {
-  const result: Record<string, boolean> = {};
-  for (let i = 1; i <= 7; i++) {
-    const key = `signal_${i}`;
-    result[key] = signal[key] === true;
-  }
-  return result;
-};
-
-const detectTriggeredSignals = (
-  signal: Signal,
-  activeSet: Set<string>
-): string[] => {
-  const triggered: string[] = [];
-
-  const isCycleEnd = signal.signal_7 === true;
-
-  if (isCycleEnd) {
-    for (let i = 1; i <= 6; i++) {
-      const key = `signal_${i}`;
-      if (signal[key] && !activeSet.has(key)) {
-        triggered.push(key);
-      }
-    }
-    triggered.push('signal_7');
-    activeSet.clear(); // reset after cycle
-  } else {
-    for (let i = 1; i <= 6; i++) {
-      const key = `signal_${i}`;
-      if (signal[key] && !activeSet.has(key)) {
-        triggered.push(key);
-        activeSet.add(key);
-      } else if (!signal[key] && activeSet.has(key)) {
-        activeSet.delete(key);
-      }
-    }
-  }
-
-  return triggered;
+  triggered_signals: string[];
 };
 
 export const getStockTriggeredSignals = async (
@@ -563,7 +522,7 @@ export const getStockTriggeredSignals = async (
     const signals = await getSingleSignal(symbol);
     if (!signals || signals.length === 0) return undefined;
 
-    const groupedByTimeframe: Record<string, Signal[]> = {};
+    const groupedByTimeframe: Record<string, TriggeredSignalRecord[]> = {};
     for (const signal of signals) {
       if (!groupedByTimeframe[signal.timeframe]) {
         groupedByTimeframe[signal.timeframe] = [];
@@ -573,27 +532,29 @@ export const getStockTriggeredSignals = async (
 
     const signalsByTimeframe: Record<string, SignalEntry[]> = {};
     const triggeredSignalsByTimeframe: Record<string, TriggeredEntry[]> = {};
-    const activeSignalsByTimeframe: Record<string, Set<string>> = {};
 
     for (const timeframe in groupedByTimeframe) {
       const signals = groupedByTimeframe[timeframe].slice().reverse();
-      const activeSet = new Set<string>();
-      activeSignalsByTimeframe[timeframe] = activeSet;
       signalsByTimeframe[timeframe] = [];
       triggeredSignalsByTimeframe[timeframe] = [];
 
       for (const signal of signals) {
-        const allSignals = extractAllSignals(signal);
-        const triggeredSignals = detectTriggeredSignals(signal, activeSet);
 
+        const allSignals: Record<string, boolean> = {};
+        for (let i = 1; i <= 7; i++) {
+          const key = `signal_${i}`;
+          allSignals[key] = signal[key];
+        }
+        
         signalsByTimeframe[timeframe].push({
           date: signal.date,
           allSignals,
         });
 
+
         triggeredSignalsByTimeframe[timeframe].push({
           date: signal.date,
-          triggeredSignals,
+          triggered_signals: signal.triggered_signals || [],
         });
       }
     }

@@ -57,7 +57,7 @@ interface SignalHistoryTableProps {
   
     // 1. Filter out entries with no *new* triggered signals
     const filteredSignalHistory = signalHistory
-      ?.filter((entry) => entry.triggeredSignals.length > 0)
+      ?.filter((entry) => entry.triggered_signals.length > 0)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); // 2. Sort latest to oldest
   
     return (
@@ -73,7 +73,7 @@ interface SignalHistoryTableProps {
             </thead>
             <tbody>
               {filteredSignalHistory?.map((signalGroup, index) => {
-                const triggeredLabels = signalGroup.triggeredSignals
+                const triggeredLabels = signalGroup.triggered_signals || []
                   .map((signalType) =>
                     DEFAULT_SIGNAL_CONFIG.find((config) => config.type === signalType)?.label || signalType
                   )
