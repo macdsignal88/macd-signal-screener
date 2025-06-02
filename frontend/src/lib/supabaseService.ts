@@ -167,7 +167,7 @@ const getLatestSignals = async (assetType?: string, searchQuery?: string) => {
 
   if (assetType) query = query.eq('asset_type', assetType);
   if (searchQuery) {
-    query = query.or(`symbol.ilike.%${searchQuery}%,name.ilike.%${searchQuery}%`);
+    query = query.ilike('symbol', `%${searchQuery}%`);
   }
   
   const { data, error } = await query;

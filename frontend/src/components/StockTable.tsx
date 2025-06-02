@@ -85,6 +85,30 @@ const DEFAULT_SIGNAL_CONFIG: SignalDisplayConfig[] = [
   }
 ];
 
+// Add a cache service to store frequently accessed data
+const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
+const CACHE_KEY = 'stock-table-cache';
+
+// Initialize cache from localStorage
+const initializeCache = () => {
+  try {
+    const savedCache = localStorage.getItem(CACHE_KEY);
+    if (savedCache) {
+      const parsedCache = JSON.parse(savedCache);
+      const now = Date.now();
+      // Filter out expired entries
+      const validEntries = Object.entries(parsedCache).filter(([_, value]: [string, any]) => 
+        now - value.timestamp < CACHE_DURATION
+      );
+      return new Map(validEntries);
+    }
+  } catch (error) {
+    console.warn('Error initializing cache:', error);
+  }
+  return new Map();
+};
+
+const stockCache = initializeCache();
 
 const StockTable: React.FC = () => {
   // Pagination state
@@ -130,7 +154,55 @@ const StockTable: React.FC = () => {
   const { watchlist } = useWatchlist();
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [selectedTimeFrame, setSelectedTimeFrame] = useState<TimeFrame>('1d');
+  const [isUsingCache, setIsUsingCache] = useState(false);
+  const [lastCacheTime, setLastCacheTime] = useState<number | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
 
+  // Move cache functions inside component
+  const getCachedData = (key: string) => {
+    const cached = stockCache.get(key);
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      setIsUsingCache(true);
+      setLastCacheTime(cached.timestamp);
+      return cached.data;
+    }
+    setIsUsingCache(false);
+    setLastCacheTime(null);
+    console.log('Cache miss:', key);
+    return null;
+  };
+
+  const setCachedData = (key: string, data: { 
+    data: SingleStockWithMacdHistory[]; 
+    total: number; 
+    uniqueSymbolCount: number; 
+  }) => {
+    const timestamp = Date.now();
+    stockCache.set(key, { data, timestamp });
+    
+    // Save to localStorage
+    try {
+      const cacheObject = Object.fromEntries(stockCache);
+      localStorage.setItem(CACHE_KEY, JSON.stringify(cacheObject));
+    } catch (error) {
+      console.warn('Error saving to cache:', error);
+    }
+
+    console.log('Cache updated:', {
+      key,
+      timestamp,
+      dataSize: data.data.length
+    });
+  };
+
+  // Add cache clear function
+  const clearCache = () => {
+    stockCache.clear();
+    localStorage.removeItem(CACHE_KEY);
+    setIsUsingCache(false);
+    setLastCacheTime(null);
+    console.log('Cache cleared');
+  };
 
   // Function to normalize timeframe for database
   const normalizeTimeFrame = (tf: string): string => {
@@ -172,34 +244,49 @@ const StockTable: React.FC = () => {
   const loadStocks = useCallback(async (page = pageIndex, size = pageSize) => {
     setLoading(true);
     try {
-      // If showing watchlist, fetch all stocks
-      const { data, total, uniqueSymbolCount } = showWatchlistOnly
-      ? await fetchWatchlistStocksFromSupabase(watchlist, selectedAssetType)
-      : await fetchStocksPageFromSupabase(
-          page,
-          size,
-          selectedAssetType,
-          searchQuery,
-          sorting.length > 0 ? {
-            field: sorting[0].id,
-            direction: sorting[0].desc ? 'desc' : 'asc'
-          } : undefined
-        );
+      // Generate cache key based on current state
+      const cacheKey = JSON.stringify({
+        page,
+        size,
+        selectedAssetType,
+        searchQuery,
+        sorting,
+        showWatchlistOnly,
+        watchlist
+      });
 
-
-
-      if (showWatchlistOnly) {
-        console.log(data)
-        setStocks(data);
-        setTotalRows(data.length);
-        setUniqueSymbolCount(data.length);
-      } else {
-        console.log(data)
-        setStocks(data);
-        // Use the total count from the backend
-        setTotalRows(total || 0);
-        setUniqueSymbolCount(uniqueSymbolCount);
+      // Try to get cached data first
+      const cachedData = getCachedData(cacheKey);
+      if (cachedData) {
+        setStocks(cachedData.data);
+        setTotalRows(cachedData.total);
+        setUniqueSymbolCount(cachedData.uniqueSymbolCount);
+        setLoading(false);
+        return;
       }
+
+      // If no cached data, fetch from Supabase
+      const { data, total, uniqueSymbolCount } = showWatchlistOnly
+        ? await fetchWatchlistStocksFromSupabase(watchlist, selectedAssetType)
+        : await fetchStocksPageFromSupabase(
+            page,
+            size,
+            selectedAssetType,
+            searchQuery,
+            sorting.length > 0 ? {
+              field: sorting[0].id,
+              direction: sorting[0].desc ? 'desc' : 'asc'
+            } : undefined
+          );
+
+      setStocks(data);
+      setTotalRows(total || 0);
+      setUniqueSymbolCount(uniqueSymbolCount);
+      setCachedData(cacheKey, {
+        data,
+        total: total || 0,
+        uniqueSymbolCount
+      });
     } catch (error) {
       console.error('Error fetching stocks:', error);
       toast({
@@ -228,17 +315,71 @@ const StockTable: React.FC = () => {
     loadStocks();
   }, [loadStocks]);
 
-  // Add debounced search
-  const debouncedSearch = useMemo(
-    () => debounce((value: string) => {
-      setSearchQuery(value);
-      setPageIndex(0); // Reset to first page when searching
-    }, 300),
-    []
-  );
+  // Modify search function to use stocks state
+  const searchStocks = (searchValue: string) => {
+    setIsSearching(true);
+    try {
+      console.log('Searching from stocks:', {
+        totalStocks: stocks.length,
+        stocks: stocks.map(stock => ({
+          symbol: stock.symbol,
+          price: stock.price,
+          signals: Object.keys(stock.signals || {})
+        }))
+      });
 
+      const searchTerms = searchValue.toLowerCase().split(' ').filter(term => term.length > 0);
+      // Filter stocks based on multiple search terms
+      const filteredStocks = stocks.filter(stock => {
+        // Get company name from mapping directory
+        let companyName = '';
+        for (const category in mappingDirectory) {
+          if (mappingDirectory[category][stock.symbol]) {
+            companyName = mappingDirectory[category][stock.symbol].toLowerCase();
+            break;
+          }
+        }
+
+        // Check if all search terms match either symbol or company name
+        const matches = searchTerms.every(term => 
+          stock.symbol.toLowerCase().includes(term) || 
+          companyName.includes(term)
+        );
+
+        if (matches) {
+          console.log('Match found:', {
+            symbol: stock.symbol,
+            companyName,
+            matchedTerms: searchTerms
+          });
+        }
+
+        return matches;
+      });
+
+
+      setStocks(filteredStocks);
+      setTotalRows(filteredStocks.length);
+      setUniqueSymbolCount(filteredStocks.length);
+      
+    } catch (error) {
+      console.error('Error searching stocks:', error);
+      toast({
+        title: 'Search error',
+        description: 'There was a problem searching stocks. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Update search handler
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    debouncedSearch(e.target.value);
+    const searchValue = e.target.value;
+    setSearchQuery(searchValue);
+    setPageIndex(0); // Reset to first page
+    searchStocks(searchValue);
   };
 
   // Calculate total pages
@@ -248,6 +389,7 @@ const StockTable: React.FC = () => {
   }, [uniqueSymbolCount , pageSize, showWatchlistOnly]);
 
   const handleRefresh = () => {
+    clearCache(); // Clear cache before refreshing
     loadStocks();
     toast({
       title: 'Refreshing data',
@@ -657,7 +799,12 @@ const StockTable: React.FC = () => {
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             {lastUpdated && (
-              <span>Last updated: {(lastUpdated)}</span>
+              <span>Last updated: {lastUpdated}</span>
+            )}
+            {isUsingCache && lastCacheTime && (
+              <span className="text-green-500">
+                (Using cached data from {new Date(lastCacheTime).toLocaleTimeString()})
+              </span>
             )}
           </div>
           <ThemeToggle />
@@ -669,7 +816,13 @@ const StockTable: React.FC = () => {
                 placeholder="Search stocks..."
                 onChange={handleSearchChange}
                 className="pl-9 h-9"
+                disabled={isSearching}
               />
+              {isSearching && (
+                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                  <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
+              )}
             </div>
             <select
               value={selectedAssetType}
