@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 
 import AuthCallback from '@/pages/AuthCallback';
 import LoginPage from '@/pages/LoginPage';
+import { SettingsProvider } from "./context/SettingsContext";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import StockDetail from '@/components/StockDetail';
 import StockTable from '@/components/StockTable';
@@ -66,34 +67,36 @@ const App = () => {
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <QueryClientProvider client={queryClient}>
-        <WatchlistProvider>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <Router>
-              <Routes>
-                <Route path="/login" element={<LoginPage />} />
-                <Route path="/auth/callback" element={<AuthCallback />} />
-                <Route
-                  path="/"
-                  element={
-                    <ProtectedRoute>
-                      <StockTable />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/stock/:symbol"
-                  element={
-                    <ProtectedRoute>
-                      <StockDetail />
-                    </ProtectedRoute>
-                  }
-                />
-              </Routes>
-            </Router>
-          </TooltipProvider>
-        </WatchlistProvider>
+        <SettingsProvider>
+          <WatchlistProvider>
+            <TooltipProvider>
+              <Toaster />
+              <Sonner />
+              <Router>
+                <Routes>
+                  <Route path="/login" element={<LoginPage />} />
+                  <Route path="/auth/callback" element={<AuthCallback />} />
+                  <Route
+                    path="/"
+                    element={
+                      <ProtectedRoute>
+                        <StockTable />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/stock/:symbol"
+                    element={
+                      <ProtectedRoute>
+                        <StockDetail />
+                      </ProtectedRoute>
+                    }
+                  />
+                </Routes>
+              </Router>
+            </TooltipProvider>
+          </WatchlistProvider>
+        </SettingsProvider>
       </QueryClientProvider>
     </ThemeProvider>
   );

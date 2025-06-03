@@ -12,6 +12,7 @@ import SignalIndicator from '@/components/SignalIndicator';
 import { getStockTriggeredSignals } from '@/lib/supabaseService';
 import { getTimeFrames } from '@/lib/stockService';
 import mappingDirectoryTradV from '@/lib/mapping_directoryTradV.json';
+import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/components/ui/use-toast';
 
 const TIMEFRAMES: TimeFrame[] = ['1d', '2d', '3d', '5d', '1wk', '2wk', '3wk', '1mo', '2mo', '3mo', '4mo', '5mo'];
@@ -90,6 +91,7 @@ const StockDetail: React.FC = () => {
   const [stock, setStock] = useState<StockSignalResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedTimeFrame, setSelectedTimeFrame] = useState<TimeFrame>('1d');
+  const { selectedTimeframes } = useSettings();
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -222,7 +224,7 @@ const StockDetail: React.FC = () => {
               <div className="mb-6">
                 <h3 className="text-xl font-semibold mb-4">MACD Signals by Timeframe</h3>
                 <div className="flex flex-wrap gap-2 mb-6">
-                  {TIMEFRAMES
+                  {selectedTimeframes
                     .filter(timeFrame => stock.signals[timeFrame])
                     .map(timeFrame => (
                       <Button

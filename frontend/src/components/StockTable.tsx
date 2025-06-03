@@ -30,6 +30,7 @@ import { debounce } from 'lodash';
 import mappingDirectory from '../lib/mapping_directory.json';
 import { signOut } from '@/lib/supabaseAuth';
 import { useNavigate } from 'react-router-dom';
+import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/hooks/use-toast';
 import { useWatchlist } from '@/context/WatchlistContext';
 
@@ -123,32 +124,16 @@ const StockTable: React.FC = () => {
   const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
   const [stocks, setStocks] = useState<SingleStockWithMacdHistory[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedTimeframes, setSelectedTimeframes] = useState<TimeFrame[]>(() => {
-    const stored = localStorage.getItem(STORAGE_KEYS.SELECTED_TIMEFRAMES);
-    return stored ? JSON.parse(stored) : ['1d', '1wk', '1mo', '3mo', '2d', '3d', '5d', '2wk','2mo','3mo','4mo','5mo'];
-  });
-  const [macdDays, setMacdDays] = useState(() => {
-    const stored = localStorage.getItem(STORAGE_KEYS.MACD_DAYS);
-    return stored ? parseInt(stored, 10) : DEFAULT_MACD_DAYS;
-  });
-  const [priceChartDays, setPriceChartDays] = useState(() => {
-    const stored = localStorage.getItem(STORAGE_KEYS.PRICE_CHART_DAYS);
-    return stored ? parseInt(stored, 10) : DEFAULT_PRICE_CHART_DAYS;
-  });
-  const [signalConfig, setSignalConfig] = useState<SignalDisplayConfig[]>(() => {
-    const stored = localStorage.getItem(STORAGE_KEYS.SIGNAL_CONFIG);
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch {
-        console.warn("Invalid localStorage data. Resetting...");
-      }
-    }
-  
-    // Set fresh default config if none or invalid
-    localStorage.setItem(STORAGE_KEYS.SIGNAL_CONFIG, JSON.stringify(DEFAULT_SIGNAL_CONFIG));
-    return DEFAULT_SIGNAL_CONFIG;
-  });
+  const { 
+    selectedTimeframes, 
+    macdDays, 
+    priceChartDays, 
+    signalConfig,
+    setSelectedTimeframes,
+    setMacdDays,
+    setPriceChartDays,
+    setSignalConfig
+  } = useSettings();
   const { toast } = useToast();
   const navigate = useNavigate();
   const { watchlist } = useWatchlist();

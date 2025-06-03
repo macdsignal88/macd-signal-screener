@@ -16,7 +16,7 @@ interface MiniPriceChartProps {
   days?: number;
 }
 
-const MiniPriceChart: React.FC<MiniPriceChartProps> = ({
+const MiniPriceChart: React.FC<MiniPriceChartProps> = ({ 
   data,
   width = 160,
   height = 60,
