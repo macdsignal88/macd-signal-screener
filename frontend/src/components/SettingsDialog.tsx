@@ -28,26 +28,31 @@ interface SettingsDialogProps {
   macdDays: number;
   priceChartDays: number;
   enabledSignals: SignalDisplayConfig[];
+  signalPersistenceDays: number;
   onTimeframesChange: (value: TimeFrame[]) => void;
   onMacdDaysChange: (value: number) => void;
   onPriceChartDaysChange: (value: number) => void;
   onSignalConfigChange: (value: SignalDisplayConfig[]) => void;
+  onSignalPersistenceDaysChange: (value: number) => void;
 }
 
 const timeframes: TimeFrame[] = ['1d', '2d', '3d', '5d', '1wk', '2wk', '3wk', '1mo', '2mo', '3mo', '4mo', '5mo'];
 const macdDayOptions = [3, 5, 7, 10, 14, 21, 30];
 const priceChartDayOptions = [7, 14, 30, 60, 90, 180];
 const macdChartDayOptions = [7, 14, 30, 60];
+const signalPersistenceDayOptions = [1, 2, 3, 5, 7, 10, 14];
 
 export const SettingsDialog: React.FC<SettingsDialogProps> = ({
   selectedTimeframes,
   macdDays,
   priceChartDays,
   enabledSignals,
+  signalPersistenceDays,
   onTimeframesChange,
   onMacdDaysChange,
   onPriceChartDaysChange,
   onSignalConfigChange,
+  onSignalPersistenceDaysChange,
 }) => {
   const handleTimeframeToggle = (timeframe: TimeFrame) => {
     if (selectedTimeframes.includes(timeframe)) {
@@ -126,6 +131,27 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                       </div>
                     </div>
                   ))}
+                  <div className="space-y-2 mt-4">
+                    <Label>Signal Persistence (Days)</Label>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Number of days signals should stay true after Signal 5 is triggered
+                    </p>
+                    <Select
+                      value={signalPersistenceDays.toString()}
+                      onValueChange={(value) => onSignalPersistenceDaysChange(parseInt(value))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select days" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {signalPersistenceDayOptions.map((days) => (
+                          <SelectItem key={days} value={days.toString()}>
+                            {days} days
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </ScrollArea>
             </TabsContent>

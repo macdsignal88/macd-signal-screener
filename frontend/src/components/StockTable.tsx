@@ -30,6 +30,7 @@ import { debounce } from 'lodash';
 import mappingDirectory from '../lib/mapping_directory.json';
 import { signOut } from '@/lib/supabaseAuth';
 import { useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/hooks/use-toast';
 import { useWatchlist } from '@/context/WatchlistContext';
@@ -40,55 +41,25 @@ const STORAGE_KEYS = {
   SELECTED_TIMEFRAMES: 'macd-screener-timeframes',
   MACD_DAYS: 'macd-screener-macd-days',
   PRICE_CHART_DAYS: 'macd-screener-price-chart-days',
-  SIGNAL_CONFIG: 'macd-screener-signal-config-${VERSION}'
+  SIGNAL_CONFIG: 'macd-screener-signal-config'
 };
-
 
 const DEFAULT_SORT: SortConfig = { field: 'symbol', direction: 'asc' };
 const DEFAULT_MACD_DAYS = 7;
 const DEFAULT_PRICE_CHART_DAYS = 30;
-const DEFAULT_SIGNAL_CONFIG: SignalDisplayConfig[] = [
-  {
-    type: 'SIGNAL_1',
-    label: 'Signal 1',
-    description: 'Signal line crosses over MACD line while both are above zero',
-    enabled: true,
-  },
-  {
-    type: 'SIGNAL_2',
-    label: 'Signal 2',
-    description: 'MACD line drops 60% or more from its last peak point',
-    enabled: true,
-  },
-  {
-    type: 'SIGNAL_3',
-    label: 'Signal 3',
-    description: 'MACD line forms a 45-degree or steeper downtrend',
-    enabled: true,
-  },
-  {
-    type: 'SIGNAL_4',
-    label: 'Signal 4',
-    description: 'Close price reaches the midpoint between EMA52 and EMA24',
-    enabled: true,
-  },
-  {
-    type: 'SIGNAL_5',
-    label: 'Signal 5',
-    description: 'Histogram below zero turns white for 2 consecutive bars',
-    enabled: true,
-  },
-  {
-    type: 'SIGNAL_6',
-    label: 'Signal 6',
-    description: 'MACD line turns upward, making a higher point than the previous',
-    enabled: true,
-  }
-];
 
 // Add a cache service to store frequently accessed data
 const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
 const CACHE_KEY = 'stock-table-cache';
+
+type StockCacheValue = {
+  data: {
+    data: SingleStockWithMacdHistory[];
+    total: number;
+    uniqueSymbolCount: number;
+  };
+  timestamp: number;
+};
 
 // Initialize cache from localStorage
 const initializeCache = () => {
@@ -98,7 +69,7 @@ const initializeCache = () => {
       const parsedCache = JSON.parse(savedCache);
       const now = Date.now();
       // Filter out expired entries
-      const validEntries = Object.entries(parsedCache).filter(([_, value]: [string, any]) => 
+      const validEntries = Object.entries(parsedCache).filter(([_, value]: [string, StockCacheValue]) => 
         now - value.timestamp < CACHE_DURATION
       );
       return new Map(validEntries);
@@ -111,37 +82,86 @@ const initializeCache = () => {
 
 const stockCache = initializeCache();
 
-const StockTable: React.FC = () => {
-  // Pagination state
+// Helper function to validate sort field
+const isValidSortField = (field: string): field is SortField => {
+  return [
+    'symbol', 'name', 'price', 'change',
+    '1d', '2d', '3d', '5d', '1wk', '2wk', '3wk', '1mo', '2mo', '3mo', '4mo', '5mo'
+  ].includes(field);
+};
+
+// Function to calculate total positive signals for a timeframe
+const getTotalPositiveSignals = (timeframeSignals: SignalFlags[] | null, timeFrame: TimeFrame) => {
+  if (!timeframeSignals || timeframeSignals.length === 0) return 0;
+  const latestSignal = timeframeSignals[0];
+  return Object.entries(latestSignal)
+    .filter(([key]) => key.startsWith('signal_'))
+    .reduce((sum, [_, value]) => sum + (value ? 1 : 0), 0);
+};
+
+export const StockTable: React.FC = () => {
+  const { 
+    selectedTimeframes, 
+    macdDays, 
+    priceChartDays, 
+    enabledSignals,
+    signalPersistenceDays,
+    setSelectedTimeframes,
+    setMacdDays,
+    setPriceChartDays,
+    setEnabledSignals,
+    setSignalPersistenceDays
+  } = useSettings();
+  const { toast } = useToast();
+  const navigate = useNavigate();
+  const { watchlist } = useWatchlist();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [pageIndex, setPageIndex] = useState(0);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(20);
   const [totalRows, setTotalRows] = useState(0);
   const [uniqueSymbolCount, setUniqueSymbolCount] = useState(0);
   const [selectedAssetType, setSelectedAssetType] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [sortConfig, setSortConfig] = useState<SortConfig>(DEFAULT_SORT);
+  const [sortConfig, setSortConfig] = useState<SortConfig>(() => {
+    const sortField = searchParams.get('sortField');
+    const sortDirection = searchParams.get('sortDirection') as 'asc' | 'desc';
+    if (sortField && isValidSortField(sortField) && sortDirection) {
+      return { field: sortField, direction: sortDirection };
+    }
+    return DEFAULT_SORT;
+  });
   const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
   const [stocks, setStocks] = useState<SingleStockWithMacdHistory[]>([]);
   const [loading, setLoading] = useState(true);
-  const { 
-    selectedTimeframes, 
-    macdDays, 
-    priceChartDays, 
-    signalConfig,
-    setSelectedTimeframes,
-    setMacdDays,
-    setPriceChartDays,
-    setSignalConfig
-  } = useSettings();
-  const { toast } = useToast();
-  const navigate = useNavigate();
-  const { watchlist } = useWatchlist();
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [selectedTimeFrame, setSelectedTimeFrame] = useState<TimeFrame>('1d');
   const [isUsingCache, setIsUsingCache] = useState(false);
   const [lastCacheTime, setLastCacheTime] = useState<number | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+
+  // Add effect to handle initial URL parameters
+  useEffect(() => {
+    console.log('Initial URL parameters:', {
+      sortField: searchParams.get('sortField'),
+      sortDirection: searchParams.get('sortDirection'),
+      allParams: Object.fromEntries(searchParams.entries())
+    });
+
+    const sortField = searchParams.get('sortField');
+    const sortDirection = searchParams.get('sortDirection') as 'asc' | 'desc';
+    
+    if (!sortField || !sortDirection || !isValidSortField(sortField)) {
+      console.log('Setting default sort parameters');
+      setSearchParams(prev => {
+        prev.set('sortField', DEFAULT_SORT.field);
+        prev.set('sortDirection', DEFAULT_SORT.direction);
+        return prev;
+      });
+      // Initialize sorting state with default values
+      setSorting([{ id: DEFAULT_SORT.field, desc: DEFAULT_SORT.direction === 'desc' }]);
+    }
+  }, []);
 
   // Move cache functions inside component
   const getCachedData = (key: string) => {
@@ -225,7 +245,6 @@ const StockTable: React.FC = () => {
     [selectedTimeframes]
   );
 
-  // Fetch paginated stocks
   const loadStocks = useCallback(async (page = pageIndex, size = pageSize) => {
     setLoading(true);
     try {
@@ -233,11 +252,11 @@ const StockTable: React.FC = () => {
       const cacheKey = JSON.stringify({
         page,
         size,
-        selectedAssetType,
-        searchQuery,
-        sorting,
-        showWatchlistOnly,
-        watchlist
+        selectedAssetType: selectedAssetType,
+        searchQuery: searchQuery,
+        sorting: sorting,
+        showWatchlistOnly: showWatchlistOnly,
+        watchlist: watchlist
       });
 
       // Try to get cached data first
@@ -254,14 +273,19 @@ const StockTable: React.FC = () => {
       const { data, total, uniqueSymbolCount } = showWatchlistOnly
         ? await fetchWatchlistStocksFromSupabase(watchlist, selectedAssetType)
         : await fetchStocksPageFromSupabase(
-            page,
-            size,
-            selectedAssetType,
-            searchQuery,
+            pageIndex,
+            pageSize,
             sorting.length > 0 ? {
-              field: sorting[0].id,
+              field: sorting[0].id as SortField,
               direction: sorting[0].desc ? 'desc' : 'asc'
-            } : undefined
+            } : sortConfig,
+            selectedTimeframes,
+            macdDays,
+            priceChartDays,
+            enabledSignals,
+            signalPersistenceDays,
+            selectedAssetType,
+            searchQuery
           );
 
       setStocks(data);
@@ -282,7 +306,7 @@ const StockTable: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [pageIndex, pageSize, selectedAssetType, searchQuery, sorting, showWatchlistOnly, watchlist, toast]);
+  }, [pageIndex, pageSize, selectedAssetType, searchQuery, sorting, showWatchlistOnly, watchlist, toast, selectedTimeframes, macdDays, priceChartDays, enabledSignals, signalPersistenceDays, sortConfig]);
 
   // Memoize filtered stocks to prevent unnecessary re-renders
   const filteredStocks = useMemo(() => {
@@ -384,7 +408,10 @@ const StockTable: React.FC = () => {
   };
 
   const handleNameClick = (symbol: string) => {
-    navigate(`/stock/${encodeURIComponent(symbol)}`);
+    // Get current URL parameters
+    const currentParams = new URLSearchParams(window.location.search);
+    // Navigate to stock detail with preserved parameters
+    navigate(`/stock/${encodeURIComponent(symbol)}${currentParams.toString() ? `?${currentParams.toString()}` : ''}`);
   };
 
   const handleTimeframeClick = (timeFrame: TimeFrame) => {
@@ -416,8 +443,8 @@ const StockTable: React.FC = () => {
   }, [priceChartDays]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SIGNAL_CONFIG, JSON.stringify(signalConfig));
-  }, [signalConfig]);
+    localStorage.setItem(STORAGE_KEYS.SIGNAL_CONFIG, JSON.stringify(enabledSignals));
+  }, [enabledSignals]);
 
   // Update handleTimeframesChange to ensure signals are generated for all timeframes
   const handleTimeframesChange = (newTimeframes: TimeFrame[]) => {
@@ -436,7 +463,7 @@ const StockTable: React.FC = () => {
   // Filter signals based on enabled configuration
   const getFilteredSignals = (timeframeSignals: SignalFlags[] | null, timeFrame: TimeFrame) => {
     if (!timeframeSignals || timeframeSignals.length === 0) {
-      return signalConfig
+      return enabledSignals
         .filter(config => config.enabled)
         .map(config => ({
           type: config.type,
@@ -449,7 +476,7 @@ const StockTable: React.FC = () => {
     const latestSignal = timeframeSignals[0]; // Most recent signal
     
   
-    return signalConfig
+    return enabledSignals
     .filter(config => config.enabled)
     .map(config => {
       const key = `signal_${config.type.split('_')[1]}`;
@@ -496,7 +523,7 @@ const StockTable: React.FC = () => {
   // Update handleSignalConfigChange to ensure signals are generated for all timeframes
   const handleSignalConfigChange = (config: SignalDisplayConfig[]) => {
     try {
-      setSignalConfig(config);
+      setEnabledSignals(config);
     } catch (error) {
       console.error('Error saving signal config:', error);
       toast({
@@ -504,6 +531,14 @@ const StockTable: React.FC = () => {
         description: 'Your signal configuration could not be saved.',
         variant: 'destructive',
       });
+    }
+  };
+
+  const handleSignalPersistenceDaysChange = (days: number) => {
+    try {
+      setSignalPersistenceDays(days);
+    } catch (error) {
+      console.error('Error saving signal persistence days:', error);
     }
   };
 
@@ -521,36 +556,64 @@ const StockTable: React.FC = () => {
     }
   };
 
+  // Update sortConfig when URL parameters change
+  useEffect(() => {
+    console.log('URL parameters changed:', {
+      sortField: searchParams.get('sortField'),
+      sortDirection: searchParams.get('sortDirection'),
+      allParams: Object.fromEntries(searchParams.entries())
+    });
+
+    const sortField = searchParams.get('sortField') as SortField;
+    const sortDirection = searchParams.get('sortDirection') as 'asc' | 'desc';
+    if (sortField && sortDirection && isValidSortField(sortField)) {
+      console.log('Updating sortConfig from URL:', { field: sortField, direction: sortDirection });
+      setSortConfig({ field: sortField, direction: sortDirection });
+      // Update sorting state to match URL
+      setSorting([{ id: sortField, desc: sortDirection === 'desc' }]);
+    } else {
+      console.log('Using default sort config:', DEFAULT_SORT);
+      setSortConfig(DEFAULT_SORT);
+      // Update sorting state to match default
+      setSorting([{ id: DEFAULT_SORT.field, desc: DEFAULT_SORT.direction === 'desc' }]);
+    }
+  }, [searchParams]);
+
+  // Update handleSort to handle both sorting state and URL updates
   const handleSort = (field: SortField) => {
-    // For timeframe sorting, we need to sort by the count of signals
-    const sortField = field === '1wk' || field === '2wk' || field === '3wk' || 
-                     field === '1mo' || field === '2mo' || field === '3mo' || 
-                     field === '4mo' || field === '5mo' || field === '1d' || 
-                     field === '2d' || field === '3d' || field === '5d' ? field : field;
+    console.log('handleSort called with field:', field);
+    const sortField = field === '2d' || field === '3d' || field === '5d' ? field : field;
     
     setSorting(prev => {
       const currentSort = prev.find(sort => sort.id === sortField);
-      if (currentSort) {
-        // If already sorting by this field, toggle direction
-        return prev.map(sort => 
-          sort.id === sortField 
-            ? { ...sort, desc: !sort.desc }
-            : sort
-        );
-      } else {
-        // If not sorting by this field, add new sort
-        return [{ id: sortField, desc: false }];
-      }
-    });
-  };
+      console.log('Current sorting state:', {
+        prev,
+        currentSort,
+        field: sortField
+      });
 
-  // Function to calculate total positive signals for a timeframe
-  const getTotalPositiveSignals = (timeframeSignals: SignalFlags[] | null, timeFrame: TimeFrame) => {
-    if (!timeframeSignals || timeframeSignals.length === 0) return 0;
-    const latestSignal = timeframeSignals[0];
-    return Object.entries(latestSignal)
-      .filter(([key]) => key.startsWith('signal_'))
-      .reduce((sum, [_, value]) => sum + (value ? 1 : 0), 0);
+      const newSorting = currentSort
+        ? prev.map(sort => 
+            sort.id === sortField 
+              ? { ...sort, desc: !sort.desc }
+              : sort
+          )
+        : [{ id: sortField, desc: false }];
+      
+      console.log('New sorting state:', newSorting);
+      
+      // Update URL with new sorting state
+      const newSort = newSorting[0];
+      if (newSort) {
+        setSearchParams(prev => {
+          prev.set('sortField', newSort.id);
+          prev.set('sortDirection', newSort.desc ? 'desc' : 'asc');
+          return prev;
+        });
+      }
+      
+      return newSorting;
+    });
   };
 
   // Add function to fetch last update time
@@ -573,7 +636,7 @@ const StockTable: React.FC = () => {
   }, []);
 
   // Define columns
-  const columns = useMemo<ColumnDef<StockWithMacdHistory>[]>(() => [
+  const columns = useMemo<ColumnDef<SingleStockWithMacdHistory>[]>(() => [
     {
       id: 'watchlist',
       header: () => null,
@@ -638,7 +701,6 @@ const StockTable: React.FC = () => {
       size: 200,
     },
     ...sortedSelectedTimeframes.map(timeFrame => ({
-      
       id: timeFrame,
       header: () => <StockHeaderCell 
         label={timeFrame} 
@@ -695,40 +757,15 @@ const StockTable: React.FC = () => {
         const countA = getTotalPositiveSignals(signalsA, timeFrame);
         const countB = getTotalPositiveSignals(signalsB, timeFrame);
         
-        return countA - countB;
+        // Get the current sort direction from the sorting state
+        const currentSort = sorting.find(s => s.id === columnId);
+        const isDesc = currentSort?.desc ?? false;
+        
+        // Apply the sort direction
+        return isDesc ? countB - countA : countA - countB;
       },
       size: 140,
     })),
-    {
-      id: 'convergence',
-      header: 'Conv/Div',
-      cell: ({ row }) => {
-        let isConverging = false;
-        if (row.original.macdHistory && row.original.macdHistory.length >= 2) {
-          const latestMacd = row.original.macdHistory[row.original.macdHistory.length - 1];
-          const prevMacd = row.original.macdHistory[row.original.macdHistory.length - 2];
-          const currentDistance = Math.abs(latestMacd.macdLine - latestMacd.signalLine);
-          const prevDistance = Math.abs(prevMacd.macdLine - prevMacd.signalLine);
-          isConverging = currentDistance < prevDistance;
-        }
-        
-        return (
-          <div className="flex items-center justify-center gap-2">
-            {isConverging ? (
-              <ArrowUpCircle className="w-5 h-5 text-signal-positive animate-pulse" />
-            ) : (
-              <ArrowDownCircle className="w-5 h-5 text-signal-negative animate-pulse" />
-            )}
-            <div className="flex flex-col items-center">
-              <div className={`text-sm font-medium ${isConverging ? 'text-signal-positive' : 'text-signal-negative'}`}>
-                {isConverging ? 'Converging' : 'Diverging'}
-              </div>
-            </div>
-          </div>
-        );
-      },
-      size: 100,
-    },
     {
       id: 'macd',
       header: `MACD (${selectedTimeFrame})`,
@@ -750,7 +787,7 @@ const StockTable: React.FC = () => {
   ], [sortedSelectedTimeframes, sorting, priceChartDays, macdDays, selectedTimeFrame]);
 
   // Initialize table
-  const table = useReactTable({
+  const table = useReactTable<SingleStockWithMacdHistory>({
     data: filteredStocks,
     columns,
     pageCount: totalPages,
@@ -764,7 +801,7 @@ const StockTable: React.FC = () => {
     onSortingChange: setSorting,
     onPaginationChange: (updater) => {
       if (typeof updater === 'function') {
-        const newState = updater({ pageIndex, pageSize });
+        const newState = updater({ pageIndex, pageSize: pageSize });
         if (!showWatchlistOnly) {
           setPageIndex(newState.pageIndex);
           setPageSize(newState.pageSize);
@@ -778,7 +815,7 @@ const StockTable: React.FC = () => {
   });
 
   return (
-    <div className="w-full space-y-6 px-2 sm:px-4">
+    <div className="container mx-auto p-4">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <h1 className="text-2xl font-bold sm:text-3xl">MACD Signal Screener</h1>
         <div className="flex items-center gap-4">
@@ -827,11 +864,13 @@ const StockTable: React.FC = () => {
               selectedTimeframes={selectedTimeframes}
               macdDays={macdDays}
               priceChartDays={priceChartDays}
-              enabledSignals={signalConfig}
+              enabledSignals={enabledSignals}
+              signalPersistenceDays={signalPersistenceDays}
               onTimeframesChange={handleTimeframesChange}
               onMacdDaysChange={handleMacdDaysChange}
               onPriceChartDaysChange={handlePriceChartDaysChange}
               onSignalConfigChange={handleSignalConfigChange}
+              onSignalPersistenceDaysChange={handleSignalPersistenceDaysChange}
             />
             <Button 
               variant="outline" 
@@ -982,11 +1021,13 @@ const StockTable: React.FC = () => {
         selectedTimeframes={selectedTimeframes}
         macdDays={macdDays}
         priceChartDays={priceChartDays}
-        enabledSignals={signalConfig}
+        enabledSignals={enabledSignals}
+        signalPersistenceDays={signalPersistenceDays}
         onTimeframesChange={handleTimeframesChange}
         onMacdDaysChange={handleMacdDaysChange}
         onPriceChartDaysChange={handlePriceChartDaysChange}
         onSignalConfigChange={handleSignalConfigChange}
+        onSignalPersistenceDaysChange={handleSignalPersistenceDaysChange}
       />
     </div>
   );

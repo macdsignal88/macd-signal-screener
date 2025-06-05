@@ -1,16 +1,17 @@
-import { MacdData, MacdHistoryEntry, MacdHistoryItem, MacdSignal, PriceData, SignalFlags, SingleStockWithMacdHistory, Stock, StockSignalResponse, StockSignals, StockWithMacdHistory, TimeFrame, TriggeredSignalRecord } from './types';
+import { MacdData, MacdHistoryEntry, MacdHistoryItem, MacdSignal, PriceData, SignalDisplayConfig, SignalFlags, SingleStockWithMacdHistory, Stock, StockSignalResponse, StockSignals, StockWithMacdHistory, TimeFrame, TriggeredSignalRecord } from './types';
 
-import { createClient } from '@supabase/supabase-js';
 import mappingDirectory from '../lib/mapping_directory.json';
+import { supabase } from './supabaseAuth';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Remove duplicate client initialization
+// const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+// const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Missing Supabase environment variables');
-}
+// if (!supabaseUrl || !supabaseKey) {
+//   throw new Error('Missing Supabase environment variables');
+// }
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+// const supabase = createClient(supabaseUrl, supabaseKey);
 
 const calculatePriceChange = (priceHistory: PriceData[]): number => {
   if (priceHistory.length < 2) return 0;
@@ -304,76 +305,75 @@ const buildStockResult = (
   latestBySymbol: Map<string, MacdSignal>,
   grouped: GroupedData
 ): SingleStockWithMacdHistory[] => {
+  return paginatedSymbols
+    .filter(symbol => {
+      const base = latestBySymbol.get(symbol);
+      if (!base) {
+        console.warn(`No base data found for symbol: ${symbol}`);
+        return false;
+      }
+      return true;
+    })
+    .map(symbol => {
+      const base = latestBySymbol.get(symbol)!;
+      const groupedData = grouped[symbol] || { timeframes: {}, allHistory: [] };
 
+      const signalPerTimeframe = TIMEFRAMES.reduce((acc, tf) => {
+        const tfData = groupedData.timeframes[tf];
+        acc[tf] = tfData
+          ? [{
+              date: tfData.date,
+              signal_1: tfData.signal_1,
+              signal_2: tfData.signal_2,
+              signal_3: tfData.signal_3,
+              signal_4: tfData.signal_4,
+              signal_5: tfData.signal_5,
+              signal_6: tfData.signal_6,
+              signal_7: tfData.signal_7
+            }]
+          : [];
+        return acc;
+      }, {} as Record<string, SignalFlags[]>);
 
-  return paginatedSymbols.map(symbol => {
-    const base = latestBySymbol.get(symbol)!;
-    const groupedData = grouped[symbol] || { timeframes: {}, allHistory: [] };
+      const macdHistoryByTf: Record<string, MacdHistoryEntry[]> = {};
 
-    const signalPerTimeframe = TIMEFRAMES.reduce((acc, tf) => {
-      const tfData = groupedData.timeframes[tf];
-      acc[tf] = tfData
-        ? [{
-            date: tfData.date,
-            signal_1: tfData.signal_1,
-            signal_2: tfData.signal_2,
-            signal_3: tfData.signal_3,
-            signal_4: tfData.signal_4,
-            signal_5: tfData.signal_5,
-            signal_6: tfData.signal_6,
-            signal_7: tfData.signal_7
-          }]
-        : [];
-      return acc;
-    }, {} as Record<string, SignalFlags[]>);
-    
+      TIMEFRAMES.forEach(tf => {
+        const tfRows = groupedData.allHistory
+          .filter(row => row.timeframe === tf)
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+          .slice(0, 60) // keep latest 60 rows
+          .reverse(); // to keep chronological order if needed
 
+        macdHistoryByTf[tf] = tfRows.map(row => ({
+          date: row.date,
+          macdLine: row.macd_line,
+          signalLine: row.signal_line,
+          histogram: row.macd_histogram
+        }));
+      });
 
-    const macdHistoryByTf: Record<string, MacdHistoryEntry[]> = {};
-    
+      const sortedHistory = groupedData.allHistory
+        .filter(row => row.timeframe === '1d')                      // only '1d' timeframe
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());  // sort by date ascending
 
-    TIMEFRAMES.forEach(tf => {
-      const tfRows = groupedData.allHistory
-        .filter(row => row.timeframe === tf)
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-        .slice(0, 60) // keep latest 60 rows
-        .reverse(); // to keep chronological order if needed
-        console.log(tfRows)
-    
-      macdHistoryByTf[tf] = tfRows.map(row => ({
-        date: row.date,
-        macdLine: row.macd_line,
-        signalLine: row.signal_line,
-        histogram: row.macd_histogram
-      }));
-      console.log(`Timeframe: ${tf}, Entries: ${tfRows.length}`);
+      const priceHistory = sortedHistory
+        .slice(-180)  // get the most recent 180 rows
+        .map(row => ({
+          date: row.date,
+          price: row.close_price
+        }));
 
+      const change = calculatePriceChange(priceHistory);
+      return {
+        symbol: base.symbol,
+        name: base.symbol,
+        price: base.close_price,
+        change,
+        macdHistory: macdHistoryByTf,
+        priceHistory,
+        signals: signalPerTimeframe,
+      };
     });
-    
-
-    const sortedHistory = groupedData.allHistory
-    .filter(row => row.timeframe === '1d')                      // only '1d' timeframe
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());  // sort by date ascending
-  
-  const priceHistory = sortedHistory
-    .slice(-180)  // get the most recent 180 rows
-    .map(row => ({
-      date: row.date,
-      price: row.close_price
-    }));
-  
-
-    const change = calculatePriceChange(priceHistory);
-    return {
-      symbol: base.symbol,
-      name: base.symbol,
-      price: base.close_price,
-      change,
-      macdHistory: macdHistoryByTf,
-      priceHistory,
-      signals: signalPerTimeframe,
-    };    
-  });
 };
 
 
@@ -382,9 +382,14 @@ const TIMEFRAMES = ['1d', '2d', '3d', '5d', '1wk', '2wk', '3wk', '1mo', '2mo', '
 export const fetchStocksPageFromSupabase = async (
   page: number,
   pageSize: number,
+  sortConfig?: SortConfig,
+  selectedTimeframes?: TimeFrame[],
+  macdDays?: number,
+  priceChartDays?: number,
+  enabledSignals?: SignalDisplayConfig[],
+  signalPersistenceDays?: number,
   assetType?: string,
-  searchQuery?: string,
-  sortConfig?: SortConfig
+  searchQuery?: string
 ): Promise<{ data: SingleStockWithMacdHistory[]; total: number; uniqueSymbolCount: number }> => {
   try {
     const total = await getSymbolCount(assetType, searchQuery);

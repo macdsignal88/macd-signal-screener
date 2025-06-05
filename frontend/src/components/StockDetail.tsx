@@ -129,7 +129,10 @@ const StockDetail: React.FC = () => {
   }, [symbol, navigate, toast]);
 
   const handleBackClick = () => {
-    navigate('/');
+    // Get the current URL parameters
+    const currentParams = new URLSearchParams(window.location.search);
+    // Navigate back to the root with the preserved parameters
+    navigate(`/${currentParams.toString() ? `?${currentParams.toString()}` : ''}`);
   };
 
   const openTradingView = () => {

@@ -18,24 +18,18 @@ const DEFAULT_SIGNAL_CONFIG = [
   {
     type: 'SIGNAL_3',
     label: 'Signal 3',
-    description: 'MACD line forms a 45-degree or steeper downtrend',
+    description: 'Close price reaches the midpoint between EMA52 and EMA24',
     enabled: true,
   },
   {
     type: 'SIGNAL_4',
     label: 'Signal 4',
-    description: 'Close price reaches the midpoint between EMA52 and EMA24',
+    description: 'Histogram below zero turns white for 2 consecutive bars',
     enabled: true,
   },
   {
     type: 'SIGNAL_5',
     label: 'Signal 5',
-    description: 'Histogram below zero turns white for 2 consecutive bars',
-    enabled: true,
-  },
-  {
-    type: 'SIGNAL_6',
-    label: 'Signal 6',
     description: 'MACD line turns upward, making a higher point than the previous',
     enabled: true,
   },
