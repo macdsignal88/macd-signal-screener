@@ -35,13 +35,13 @@ import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/hooks/use-toast';
 import { useWatchlist } from '@/context/WatchlistContext';
 
-const CURRENT_VERSION = '1.0.0'; 
+const CURRENT_VERSION = '1.1.0'; 
 // Add constants for local storage keys
 const STORAGE_KEYS = {
-  SELECTED_TIMEFRAMES: 'macd-screener-timeframes',
-  MACD_DAYS: 'macd-screener-macd-days',
-  PRICE_CHART_DAYS: 'macd-screener-price-chart-days',
-  SIGNAL_CONFIG: 'macd-screener-signal-config'
+  SELECTED_TIMEFRAMES: `macd-screener-${CURRENT_VERSION}-timeframes`,
+  MACD_DAYS: `macd-screener-${CURRENT_VERSION}-macd-days`,
+  PRICE_CHART_DAYS: `macd-screener-${CURRENT_VERSION}-price-chart-days`,
+  SIGNAL_CONFIG: `macd-screener-${CURRENT_VERSION}-signal-config`
 };
 
 const DEFAULT_SORT: SortConfig = { field: 'symbol', direction: 'asc' };
