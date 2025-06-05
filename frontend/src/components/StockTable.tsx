@@ -41,7 +41,8 @@ const STORAGE_KEYS = {
   SELECTED_TIMEFRAMES: `macd-screener-${CURRENT_VERSION}-timeframes`,
   MACD_DAYS: `macd-screener-${CURRENT_VERSION}-macd-days`,
   PRICE_CHART_DAYS: `macd-screener-${CURRENT_VERSION}-price-chart-days`,
-  SIGNAL_CONFIG: `macd-screener-${CURRENT_VERSION}-signal-config`
+  SIGNAL_CONFIG: `macd-screener-${CURRENT_VERSION}-signal-config`,
+  ROWS_PER_PAGE: `macd-screener-${CURRENT_VERSION}-rows-per-page`
 };
 
 const DEFAULT_SORT: SortConfig = { field: 'symbol', direction: 'asc' };
@@ -117,7 +118,10 @@ export const StockTable: React.FC = () => {
   const { watchlist } = useWatchlist();
   const [searchParams, setSearchParams] = useSearchParams();
   const [pageIndex, setPageIndex] = useState(0);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(() => {
+    const savedPageSize = localStorage.getItem(STORAGE_KEYS.ROWS_PER_PAGE);
+    return savedPageSize ? parseInt(savedPageSize, 10) : 50;
+  });
   const [totalRows, setTotalRows] = useState(0);
   const [uniqueSymbolCount, setUniqueSymbolCount] = useState(0);
   const [selectedAssetType, setSelectedAssetType] = useState<string>('');
@@ -634,6 +638,11 @@ export const StockTable: React.FC = () => {
   useEffect(() => {
     fetchLastUpdate();
   }, []);
+
+  // Add effect to save page size when it changes
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.ROWS_PER_PAGE, pageSize.toString());
+  }, [pageSize]);
 
   // Define columns
   const columns = useMemo<ColumnDef<SingleStockWithMacdHistory>[]>(() => [
