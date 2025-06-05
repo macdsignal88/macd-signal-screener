@@ -544,7 +544,6 @@ export const getStockTriggeredSignals = async (
       triggeredSignalsByTimeframe[timeframe] = [];
 
       for (const signal of signals) {
-
         const allSignals: Record<string, boolean> = {};
         for (let i = 1; i <= 7; i++) {
           const key = `signal_${i}`;
@@ -556,7 +555,6 @@ export const getStockTriggeredSignals = async (
           allSignals,
         });
 
-
         triggeredSignalsByTimeframe[timeframe].push({
           date: signal.date,
           triggered_signals: signal.triggered_signals || [],
@@ -564,11 +562,21 @@ export const getStockTriggeredSignals = async (
       }
     }
 
-    const latest = signals[signals.length - 1];
-    const previous = signals[signals.length - 2];
-    const change = latest && previous
-      ? latest.close_price - previous.close_price
-      : undefined;
+    const dailySignals = signals.filter(s => s.timeframe === '1d').sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    const latest = dailySignals[dailySignals.length - 1];
+
+    
+    // Calculate price change using the same method as the table
+    const priceHistory = signals
+      .filter(s => s.timeframe === '1d')
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .map(s => ({
+        date: s.date,
+        price: s.close_price
+      }));
+
+    const change = calculatePriceChange(priceHistory);
 
     let companyName = latest.symbol;
     for (const category in mappingDirectory) {

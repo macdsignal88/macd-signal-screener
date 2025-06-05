@@ -260,12 +260,18 @@ export const StockTable: React.FC = () => {
         searchQuery: searchQuery,
         sorting: sorting,
         showWatchlistOnly: showWatchlistOnly,
-        watchlist: watchlist
+        watchlist: watchlist,
+        selectedTimeframes,
+        macdDays,
+        priceChartDays,
+        enabledSignals,
+        signalPersistenceDays
       });
 
       // Try to get cached data first
       const cachedData = getCachedData(cacheKey);
       if (cachedData) {
+        console.log('Using cached data for page:', page);
         setStocks(cachedData.data);
         setTotalRows(cachedData.total);
         setUniqueSymbolCount(cachedData.uniqueSymbolCount);
@@ -292,14 +298,17 @@ export const StockTable: React.FC = () => {
             searchQuery
           );
 
-      setStocks(data);
-      setTotalRows(total || 0);
-      setUniqueSymbolCount(uniqueSymbolCount);
+      // Cache the fetched data
+      console.log('Caching data for page:', page);
       setCachedData(cacheKey, {
         data,
         total: total || 0,
         uniqueSymbolCount
       });
+
+      setStocks(data);
+      setTotalRows(total || 0);
+      setUniqueSymbolCount(uniqueSymbolCount);
     } catch (error) {
       console.error('Error fetching stocks:', error);
       toast({
