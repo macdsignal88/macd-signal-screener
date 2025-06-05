@@ -24,4 +24,4 @@ jobs:
           pip install -r backend/requirements.txt
 
       - name: Run scheduled update script
-        run: python backend/app/scripts/scheduled_updates.py
+        run: PYTHONPATH=backend python backend/app/scripts/scheduled_updates.py

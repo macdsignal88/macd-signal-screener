@@ -260,7 +260,8 @@ export const StockTable: React.FC = () => {
         searchQuery: searchQuery,
         sorting: sorting,
         showWatchlistOnly: showWatchlistOnly,
-        watchlist: watchlist,
+        // Only include watchlist in cache key when showWatchlistOnly is true
+        ...(showWatchlistOnly ? { watchlist } : {}),
         selectedTimeframes,
         macdDays,
         priceChartDays,
@@ -329,13 +330,15 @@ export const StockTable: React.FC = () => {
 
   // Update when watchlist filter changes
   useEffect(() => {
-    loadStocks();
-  }, [loadStocks]);
+    if (showWatchlistOnly) {
+      loadStocks();
+    }
+  }, [loadStocks, showWatchlistOnly]);
 
   // Update when other filters change
   useEffect(() => {
     loadStocks();
-  }, [loadStocks]);
+  }, [loadStocks, selectedAssetType, searchQuery, sorting, selectedTimeframes, macdDays, priceChartDays, enabledSignals, signalPersistenceDays]);
 
   // Modify search function to use stocks state
   const searchStocks = (searchValue: string) => {
