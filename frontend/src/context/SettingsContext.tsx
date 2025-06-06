@@ -20,31 +20,31 @@ const DEFAULT_SIGNAL_CONFIG: SignalDisplayConfig[] = [
   {
     type: 'SIGNAL_1',
     label: 'Signal 1',
-    description: 'Bearish MACD crossover above zero',
+    description: 'Signal line crosses over MACD above zero line',
     enabled: true,
   },
   {
     type: 'SIGNAL_2',
     label: 'Signal 2',
-    description: 'MACD drops 60% from peak',
+    description: 'MACD line drops 60% from last peak point',
     enabled: true,
   },
   {
     type: 'SIGNAL_3',
     label: 'Signal 3',
-    description: 'Price below EMA midpoint',
+    description: 'Close price falls below midpoint of EMA52 and EMA24',
     enabled: true,
   },
   {
     type: 'SIGNAL_4',
     label: 'Signal 4',
-    description: 'Histogram weakens for 3 consecutive bars',
+    description: 'Histogram below zero turns white for 3 consecutive bars',
     enabled: true,
   },
   {
     type: 'SIGNAL_5',
     label: 'Signal 5',
-    description: 'Bullish MACD crossover',
+    description: 'MACD crosses signal line; both above zero and rising',
     enabled: true,
   }
 ];
