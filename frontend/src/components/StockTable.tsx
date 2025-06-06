@@ -1,4 +1,4 @@
-import { ArrowDownCircle, ArrowUpCircle, RefreshCw, Search } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, Copy, ExternalLink, RefreshCw, Search } from 'lucide-react';
 import {
   ColumnDef,
   SortingState,
@@ -423,22 +423,24 @@ export const StockTable: React.FC = () => {
     });
   };
 
-  const handleNameClick = (symbol: string) => {
+  const handleNameClick = (symbol: string, event: React.MouseEvent) => {
     // Get current URL parameters
     const currentParams = new URLSearchParams(window.location.search);
-    // Navigate to stock detail with preserved parameters
-    navigate(`/stock/${encodeURIComponent(symbol)}${currentParams.toString() ? `?${currentParams.toString()}` : ''}`);
+    const url = `/stock/${encodeURIComponent(symbol)}${currentParams.toString() ? `?${currentParams.toString()}` : ''}`;
+    
+    if (event.ctrlKey || event.metaKey) {
+      // Ctrl/Cmd + click - open in new tab
+      window.open(url, '_blank');
+    } else {
+      // Left click - navigate in current tab
+      navigate(url);
+    }
   };
 
-  const handleTimeframeClick = (timeFrame: TimeFrame) => {
-    setSelectedTimeFrame(timeFrame);
-  };
-
-  const toggleWatchlistFilter = () => {
-    setShowWatchlistOnly(!showWatchlistOnly);
-    // Reset to first page when toggling watchlist
-    setPageIndex(0);
-  };
+  // Update when other filters change
+  useEffect(() => {
+    loadStocks();
+  }, [loadStocks, selectedAssetType, searchQuery, sorting, selectedTimeframes, macdDays, priceChartDays, enabledSignals, signalPersistenceDays]);
 
   // Save settings to local storage when they change
   useEffect(() => {
@@ -682,14 +684,23 @@ export const StockTable: React.FC = () => {
           }
         }
         
+        const currentParams = new URLSearchParams(window.location.search);
+        const url = `/stock/${encodeURIComponent(row.original.symbol)}${currentParams.toString() ? `?${currentParams.toString()}` : ''}`;
+        
         return (
-          <div 
+          <a 
+            href={url}
             className="flex flex-col cursor-pointer hover:text-primary transition-colors"
-            onClick={() => handleNameClick(row.original.symbol)}
+            onClick={(e) => {
+              if (!e.ctrlKey && !e.metaKey) {
+                e.preventDefault();
+                navigate(url);
+              }
+            }}
           >
             <span className="font-medium">{row.original.symbol}</span>
             <span className="text-sm text-muted-foreground">{companyName}</span>
-          </div>
+          </a>
         );
       },
       size: 200,
@@ -748,7 +759,6 @@ export const StockTable: React.FC = () => {
         return (
           <div 
             className="cursor-pointer hover:bg-muted/30 transition-colors rounded p-1"
-            onClick={() => handleTimeframeClick(timeFrame)}
           >
             <div className="flex flex-wrap justify-center gap-1.5 py-1">
               {filteredSignals.map((signal) => (
@@ -920,7 +930,10 @@ export const StockTable: React.FC = () => {
           <Switch
             id="watchlist-filter"
             checked={showWatchlistOnly}
-            onCheckedChange={toggleWatchlistFilter}
+            onCheckedChange={() => {
+              setShowWatchlistOnly(!showWatchlistOnly);
+              setPageIndex(0); // Reset to first page when toggling watchlist
+            }}
           />
           <Label htmlFor="watchlist-filter" className="cursor-pointer">Show watchlist only</Label>
         </div>
