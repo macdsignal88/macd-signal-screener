@@ -8,6 +8,8 @@ class BatchMacdService:
         self.slow_period = 52
         self.signal_period = 9
         self.data = None
+        self.in_cycle = False
+        self.current_cycle_step = 0
 
     def calculate_macd(self, prices: List[float], symbol: str, timeframe: str, dates: List[str]) -> Dict[str, List[float]]:
         prices_array = np.array(prices)
@@ -27,17 +29,65 @@ class BatchMacdService:
 
     def calculate_ema_midpoints(self, close_prices: List[float]) -> List[float]:
         return self._calculate_ema(np.array(close_prices), self.fast_period).tolist()
-    def _trigger_signal(self, i, signal_number: int, condition: str, triggered: List[str]):
-            self.data.at[i, f'signal_{signal_number}'] = True
-            self.data.at[i, 'meta_condition'] = condition
-            triggered.append(f'signal_{signal_number}')
-            # Keep all previously triggered signals true
-            if i > 0:
-                for n in range(1, signal_number):
-                    if self.data.at[i - 1, f'signal_{n}']:
-                        self.data.at[i, f'signal_{n}'] = True
 
-    def detect_signals(self, macd_data: Dict[str, List[float]], close_prices: List[float], ema_midpoints: List[float], dates: List[str]) -> pd.DataFrame:
+    def _trigger_signal(self, i: int, signal_number: int, condition: str, triggered: List[str]):
+        for n in range(1, signal_number + 1):
+            self.data.at[i, f'signal_{n}'] = True
+        self.data.at[i, 'meta_condition'] = condition
+        triggered.append(f'signal_{signal_number}')
+
+    def _propagate_signals(self, i: int):
+        for n in range(1, 6):
+            if self.data.at[i - 1, f'signal_{n}']:
+                self.data.at[i, f'signal_{n}'] = True
+            else:
+                break
+
+    def _reset_cycle(self):
+        self.in_cycle = False
+        self.current_cycle_step = 0
+
+    def _handle_post_signal5_hold(self, i: int, cycle_id: int, post_counter: int) -> int:
+        for n in range(1, 6):
+            self.data.at[i, f'signal_{n}'] = True
+        self.data.at[i, 'meta_cycle_id'] = cycle_id
+        self.data.at[i, 'meta_condition'] = "Post signal_5 hold"
+        self.data.at[i, 'triggered_signals'] = [f'hold_day_{post_counter + 1}']
+        return post_counter + 1
+
+    def _should_start_new_cycle(self, macd, signal):
+        return macd < signal and macd > 0
+
+    def _check_signal_2(self, i, macd, triggered):
+        macd_peak_10 = max(self.data.iloc[i - 10:i]['macd_line'])
+        if macd < 0.4 * macd_peak_10:
+            self._trigger_signal(i, 2, "MACD drops 60% from recent 10-candle peak", triggered)
+            self.current_cycle_step = 2
+
+    def _check_signal_3(self, i, close, ema_mid, triggered):
+        if ema_mid is not None and close < ema_mid:
+            self._trigger_signal(i, 3, "Price below EMA midpoint", triggered)
+            self.current_cycle_step = 3
+
+    def _check_signal_4(self, i, hist, prev_hist, prev2_hist, triggered):
+        if abs(hist) < abs(prev_hist) < abs(prev2_hist):
+            self._trigger_signal(i, 4, "Histogram weakens for 3 consecutive bars", triggered)
+            self.current_cycle_step = 4
+
+    def _check_signal_5(self, i, macd, signal, prev_macd, prev_signal, cycle_id, triggered):
+        if macd > signal and prev_macd < prev_signal:
+            if macd > 0 and signal > 0:
+                self._trigger_signal(i, 5, "Bullish MACD crossover above zero (end)", triggered)
+                self.current_cycle_step = 5
+                return 1  # post_signal5_counter = 1
+            else:
+                self._reset_cycle()
+                self.data.at[i, 'meta_cycle_id'] = cycle_id
+                self.data.at[i, 'meta_condition'] = "END CYCLE (bullish crossover below zero)"
+                self.data.at[i, 'triggered_signals'] = ["END_CYCLE"]
+        return 0
+
+    def detect_signals(self, macd_data, close_prices, ema_midpoints, dates) -> pd.DataFrame:
         self.data = pd.DataFrame({
             'macd_line': macd_data['macd_line'],
             'signal_line': macd_data['signal_line'],
@@ -55,89 +105,66 @@ class BatchMacdService:
         self.data['triggered_signals'] = None
 
         cycle_id = 0
-        current_cycle_step = 0
-        in_cycle = False
-        post_signal5_counter = 0  # Count days after signal 5
+        post_signal5_counter = 0
 
         for i in range(10, len(self.data)):
             try:
                 row, prev_row, prev2_row = self.data.iloc[i], self.data.iloc[i - 1], self.data.iloc[i - 2]
                 macd, signal, hist = row['macd_line'], row['signal_line'], row['macd_histogram']
-                prev_macd, prev_signal, prev_hist, prev2_hist = prev_row['macd_line'], prev_row['signal_line'], prev_row['macd_histogram'], prev2_row['macd_histogram']
+                prev_macd, prev_signal = prev_row['macd_line'], prev_row['signal_line']
+                prev_hist, prev2_hist = prev_row['macd_histogram'], prev2_row['macd_histogram']
                 close, ema_mid = row['close'], float(row['ema_midpoint']) if pd.notna(row['ema_midpoint']) else None
 
                 triggered = []
 
-                # If in 3-day post-cycle hold, copy previous signal state
                 if post_signal5_counter > 0:
-                    # Allow restarting a cycle if signal_1 is detected
-                    if macd < signal and macd > 0:
+                    if self._should_start_new_cycle(macd, signal):
                         cycle_id += 1
-                        in_cycle = True
-                        current_cycle_step = 1
-                        post_signal5_counter = 0  # Cancel the hold period
+                        self.in_cycle = True
+                        self.current_cycle_step = 1
+                        post_signal5_counter = 0
                         self._trigger_signal(i, 1, "Bearish MACD crossover above zero (new cycle during hold)", triggered)
                         self.data.at[i, 'meta_cycle_id'] = cycle_id
                         self.data.at[i, 'triggered_signals'] = triggered
-                        continue  # Proceed to next row
-
-                    # Otherwise, hold previous signals
-                    for n in range(1, 6):
-                        self.data.at[i, f'signal_{n}'] = True
-                    self.data.at[i, 'meta_cycle_id'] = cycle_id
-                    self.data.at[i, 'meta_condition'] = "Post signal_5 hold"
-                    self.data.at[i, 'triggered_signals'] = ['hold_day_' + str(post_signal5_counter + 1)]
-                    post_signal5_counter += 1
+                        continue
+                    post_signal5_counter = self._handle_post_signal5_hold(i, cycle_id, post_signal5_counter)
                     if post_signal5_counter >= 3:
                         post_signal5_counter = 0
-                        in_cycle = False
-                        current_cycle_step = 0
+                        self._reset_cycle()
                     continue
 
-
-                # Start new cycle with signal 1
-                if macd < signal and macd > 0:
+                if not self.in_cycle and self._should_start_new_cycle(macd, signal):
                     cycle_id += 1
-                    in_cycle = True
-                    current_cycle_step = 1
+                    self.in_cycle = True
+                    self.current_cycle_step = 1
                     self._trigger_signal(i, 1, "Bearish MACD crossover above zero", triggered)
                     self.data.at[i, 'meta_cycle_id'] = cycle_id
                     self.data.at[i, 'triggered_signals'] = triggered
                     continue
 
-                if in_cycle:
+                if self.in_cycle:
                     self.data.at[i, 'meta_cycle_id'] = cycle_id
+                    self._propagate_signals(i)
+                    if self.current_cycle_step >= 1 and not self.data.at[i, 'signal_2']:
+                        self._check_signal_2(i, macd, triggered)
+                    if self.current_cycle_step >= 2 and not self.data.at[i, 'signal_3']:
+                        self._check_signal_3(i, close, ema_mid, triggered)
+                    if self.current_cycle_step >= 3 and not self.data.at[i, 'signal_4']:
+                        self._check_signal_4(i, hist, prev_hist, prev2_hist, triggered)
+                    if self.current_cycle_step >= 4 and not self.data.at[i, 'signal_5']:
+                        post_signal5_counter = self._check_signal_5(i, macd, signal, prev_macd, prev_signal, cycle_id, triggered)
 
-                    # Propagate previous signals
-                    for n in range(1, 6):
-                        self.data.at[i, f'signal_{n}'] = self.data.at[i - 1, f'signal_{n}']
-
-                    if current_cycle_step >= 1 and not self.data.at[i, 'signal_2']:
-                        macd_peak_10 = max(self.data.iloc[i - 10:i]['macd_line'])
-                        if macd < 0.4 * macd_peak_10:
-                            self._trigger_signal(i, 2, "MACD drops 60% from recent 10-candle peak", triggered)
-                            current_cycle_step = 2
-
-                    if current_cycle_step >= 2 and not self.data.at[i, 'signal_3']:
-                        if ema_mid is not None and close < ema_mid:
-                            self._trigger_signal(i, 3, "Price below EMA midpoint", triggered)
-                            current_cycle_step = 3
-
-                    if current_cycle_step >= 3 and not self.data.at[i, 'signal_4']:
-                        if abs(hist) < abs(prev_hist) < abs(prev2_hist):
-                            self._trigger_signal(i, 4, "Histogram weakens for 3 consecutive bars", triggered)
-                            current_cycle_step = 4
-
-                    if current_cycle_step >= 4 and not self.data.at[i, 'signal_5']:
-                        if macd > signal and prev_macd < prev_signal and macd > 0 and signal > 0:
-                            self._trigger_signal(i, 5, "Bullish MACD crossover above zero (end)", triggered)
-                            post_signal5_counter = 1  # Start post-signal_5 hold from next row
-                            current_cycle_step = 5
-
-                self.data.at[i, 'triggered_signals'] = triggered if triggered else None
+                if triggered:
+                    self.data.at[i, 'triggered_signals'] = triggered
 
             except Exception as e:
                 print(f"Error processing index {i}: {e}")
+
+        for i in range(len(self.data)):
+            for n in range(2, 6):
+                if self.data.at[i, f'signal_{n}']:
+                    for k in range(1, n):
+                        self.data.at[i, f'signal_{k}'] = True
 
         return self.data
 

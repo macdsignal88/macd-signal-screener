@@ -13,8 +13,7 @@ import {
   YAxis
 } from 'recharts';
 import { MacdData, TimeFrame } from '@/lib/types';
-
-import React from 'react';
+import React, { memo } from 'react';
 
 interface MacdMiniChartProps {
   data: MacdData[];
@@ -24,13 +23,15 @@ interface MacdMiniChartProps {
   days?: number;
 }
 
-const MacdMiniChart: React.FC<MacdMiniChartProps> = ({ 
+const MacdMiniChart: React.FC<MacdMiniChartProps> = memo(({ 
   data,
   selectedTimeFrame,
   width = 160,
   height = 60,
   days = 7
 }) => {
+  const startTime = performance.now();
+  
   const chartData = [...data].slice(-days); // Get last N days of data based on the days prop
   
   const allValues = chartData.flatMap(d => [d.macdLine, d.signalLine, d.histogram]);
@@ -40,6 +41,9 @@ const MacdMiniChart: React.FC<MacdMiniChartProps> = ({
     Math.min(minValue, 0) * 1.1,
     Math.max(maxValue, 0) * 1.1
   ];
+
+  const endTime = performance.now();
+  console.log(`[Performance] MacdMiniChart render took ${(endTime - startTime).toFixed(2)}ms for ${selectedTimeFrame}`);
 
   return (
     <div className="relative w-full h-full" style={{ width, height }}>
@@ -92,6 +96,8 @@ const MacdMiniChart: React.FC<MacdMiniChartProps> = ({
       </ResponsiveContainer>
     </div>
   );
-};
+});
+
+MacdMiniChart.displayName = 'MacdMiniChart';
 
 export default MacdMiniChart;
