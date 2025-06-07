@@ -142,14 +142,59 @@ type GroupedData = Record<string, {
   allHistory: MacdSignal[];
 }>;
 
+// Add type for mapping directory
+type MappingDirectory = {
+  [category: string]: {
+    [symbol: string]: string;
+  };
+};
+
 // 1. Count matching symbols
-const getSymbolCount = async (assetType?: string, searchQuery?: string) => {
-  let query = supabase.from('macd_signals').select('symbol', { count: 'exact' });
-  if (assetType) query = query.eq('asset_type', assetType);
-  if (searchQuery) query = query.ilike('symbol', `%${searchQuery}%`);
-  const { count, error } = await query;
-  if (error) throw error;
-  return count || 0;
+const getSymbolCount = async (assetType?: string, searchQuery?: string): Promise<number> => {
+  try {
+    let query = supabase
+      .from('macd_signals')
+      .select('symbol', { count: 'exact' });
+
+    // Apply asset type filter if provided
+    if (assetType) {
+      query = query.eq('asset_type', assetType);
+    }
+
+    // Apply search filter if provided
+    if (searchQuery) {
+      const searchTerms = searchQuery.toLowerCase().split(' ').filter(term => term.length > 0);
+      
+      // Get all symbols that match the company names in the search terms
+      const matchingSymbols = new Set<string>();
+      const mappingDir = mappingDirectory as MappingDirectory;
+      for (const category in mappingDir) {
+        for (const [symbol, name] of Object.entries(mappingDir[category])) {
+          if (searchTerms.some(term => name.toLowerCase().includes(term))) {
+            matchingSymbols.add(symbol);
+          }
+        }
+      }
+
+      // Create search conditions for both symbol and company name matches
+      const searchConditions = [
+        // Symbol search conditions
+        ...searchTerms.map(term => `symbol.ilike.%${term}%`),
+        // Company name matches
+        ...Array.from(matchingSymbols).map(symbol => `symbol.eq.${symbol}`)
+      ].join(',');
+
+      query = query.or(searchConditions);
+    }
+
+    const { count, error } = await query;
+
+    if (error) throw error;
+    return count || 0;
+  } catch (error) {
+    console.error('Error getting symbol count:', error);
+    return 0;
+  }
 };
 
 // 2. Fetch unique symbol count
@@ -160,20 +205,52 @@ const getUniqueSymbolCount = async () => {
 };
 
 // 3. Fetch latest daily signals
-const getLatestSignals = async (assetType?: string, searchQuery?: string) => {
-  let query = supabase
-    .from('macd_signals')
-    .select('*')
-    .order('date', { ascending: false });
+const getLatestSignals = async (assetType?: string, searchQuery?: string): Promise<MacdSignal[]> => {
+  try {
+    let query = supabase
+      .from('macd_signals')
+      .select('*')
+      .order('date', { ascending: false });
 
-  if (assetType) query = query.eq('asset_type', assetType);
-  if (searchQuery) {
-    query = query.ilike('symbol', `%${searchQuery}%`);
+    // Apply asset type filter if provided
+    if (assetType) {
+      query = query.eq('asset_type', assetType);
+    }
+
+    // Apply search filter if provided
+    if (searchQuery) {
+      const searchTerms = searchQuery.toLowerCase().split(' ').filter(term => term.length > 0);
+      
+      // Get all symbols that match the company names in the search terms
+      const matchingSymbols = new Set<string>();
+      const mappingDir = mappingDirectory as MappingDirectory;
+      for (const category in mappingDir) {
+        for (const [symbol, name] of Object.entries(mappingDir[category])) {
+          if (searchTerms.some(term => name.toLowerCase().includes(term))) {
+            matchingSymbols.add(symbol);
+          }
+        }
+      }
+
+      // Create search conditions for both symbol and company name matches
+      const searchConditions = [
+        // Symbol search conditions
+        ...searchTerms.map(term => `symbol.ilike.%${term}%`),
+        // Company name matches
+        ...Array.from(matchingSymbols).map(symbol => `symbol.eq.${symbol}`)
+      ].join(',');
+
+      query = query.or(searchConditions);
+    }
+
+    const { data, error } = await query;
+
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Error fetching latest signals:', error);
+    return [];
   }
-  
-  const { data, error } = await query;
-  if (error) throw error;
-  return data;
 };
 
 const getSingleSignal = async (symbol: string, searchQuery?: string) => {
@@ -392,9 +469,11 @@ export const fetchStocksPageFromSupabase = async (
   searchQuery?: string
 ): Promise<{ data: SingleStockWithMacdHistory[]; total: number; uniqueSymbolCount: number }> => {
   try {
+    // Get total count with search filter
     const total = await getSymbolCount(assetType, searchQuery);
     const uniqueSymbolCount = await getUniqueSymbolCount();
 
+    // Get latest signals with search filter
     const latestSignals = await getLatestSignals(assetType, searchQuery);
     const latestBySymbol = new Map(latestSignals.map(s => [s.symbol, s]));
 

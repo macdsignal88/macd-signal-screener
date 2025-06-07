@@ -394,7 +394,15 @@ export const StockTable: React.FC = () => {
     setCache({});
   };
 
-  // Add performance measurement for loadStocks
+  // Update search handler to trigger search immediately
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const searchValue = e.target.value;
+    setSearchQuery(searchValue);
+    setPageIndex(0); // Reset to first page
+    loadStocks(); // This will now use the searchQuery in the API call
+  };
+
+  // Update loadStocks to handle loading state internally
   const loadStocks = useCallback(async (page = pageIndex, size = pageSize) => {
     const startTime = performance.now();
     setLoading(true);
@@ -407,7 +415,6 @@ export const StockTable: React.FC = () => {
         searchQuery: searchQuery,
         sorting: sorting,
         showWatchlistOnly: showWatchlistOnly,
-        // Only include watchlist in cache key when showWatchlistOnly is true
         ...(showWatchlistOnly ? { watchlist } : {}),
         selectedTimeframes,
         macdDays,
@@ -485,76 +492,6 @@ export const StockTable: React.FC = () => {
     loadStocks();
   }, [loadStocks, selectedAssetType, searchQuery, sorting, selectedTimeframes, macdDays, priceChartDays, enabledSignals, signalPersistenceDays]);
 
-  // Add performance measurement for searchStocks
-  const searchStocks = (searchValue: string) => {
-    const startTime = performance.now();
-    setIsSearching(true);
-    try {
-      console.log('Searching from stocks:', {
-        totalStocks: stocks.length,
-        stocks: stocks.map(stock => ({
-          symbol: stock.symbol,
-          price: stock.price,
-          signals: Object.keys(stock.signals || {})
-        }))
-      });
-
-      const searchTerms = searchValue.toLowerCase().split(' ').filter(term => term.length > 0);
-      // Filter stocks based on multiple search terms
-      const filteredStocks = stocks.filter(stock => {
-        // Get company name from mapping directory
-        let companyName = '';
-        for (const category in mappingDirectory) {
-          if (mappingDirectory[category][stock.symbol]) {
-            companyName = mappingDirectory[category][stock.symbol].toLowerCase();
-            break;
-          }
-        }
-
-        // Check if all search terms match either symbol or company name
-        const matches = searchTerms.every(term => 
-          stock.symbol.toLowerCase().includes(term) || 
-          companyName.includes(term)
-        );
-
-        if (matches) {
-          console.log('Match found:', {
-            symbol: stock.symbol,
-            companyName,
-            matchedTerms: searchTerms
-          });
-        }
-
-        return matches;
-      });
-
-
-      setStocks(filteredStocks);
-      setTotalRows(filteredStocks.length);
-      setUniqueSymbolCount(filteredStocks.length);
-      
-    } catch (error) {
-      console.error('Error searching stocks:', error);
-      toast({
-        title: 'Search error',
-        description: 'There was a problem searching stocks. Please try again.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsSearching(false);
-      const endTime = performance.now();
-      console.log(`[Performance] searchStocks took ${(endTime - startTime).toFixed(2)}ms`);
-    }
-  };
-
-  // Update search handler
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const searchValue = e.target.value;
-    setSearchQuery(searchValue);
-    setPageIndex(0); // Reset to first page
-    searchStocks(searchValue);
-  };
-
   // Calculate total pages
   const totalPages = useMemo(() => {
     if (showWatchlistOnly) return 1;
@@ -584,11 +521,6 @@ export const StockTable: React.FC = () => {
       navigate(url);
     }
   };
-
-  // Update when other filters change
-  useEffect(() => {
-    loadStocks();
-  }, [loadStocks, selectedAssetType, searchQuery, sorting, selectedTimeframes, macdDays, priceChartDays, enabledSignals, signalPersistenceDays]);
 
   // Save settings to local storage when they change
   useEffect(() => {
