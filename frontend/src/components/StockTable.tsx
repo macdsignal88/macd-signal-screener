@@ -187,10 +187,8 @@ const createColumns = (
           href={url}
           className="flex flex-col cursor-pointer hover:text-primary transition-colors"
           onClick={(e) => {
-            if (!e.ctrlKey && !e.metaKey) {
-              e.preventDefault();
-              navigate(url);
-            }
+            e.preventDefault();
+            window.open(url, '_blank');
           }}
         >
           <span className="font-medium">{row.original.symbol}</span>
