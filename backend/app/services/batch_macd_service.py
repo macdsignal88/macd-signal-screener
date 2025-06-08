@@ -7,14 +7,19 @@ class BatchMacdService:
         self.fast_period = 24
         self.slow_period = 52
         self.signal_period = 9
+
+        self.fast_macd = 12
+        self.slow_macd = 26
+
         self.data = None
         self.in_cycle = False
         self.current_cycle_step = 0
 
+
     def calculate_macd(self, prices: List[float], symbol: str, timeframe: str, dates: List[str]) -> Dict[str, List[float]]:
         prices_array = np.array(prices)
-        fast_ema = self._calculate_ema(prices_array, self.fast_period)
-        slow_ema = self._calculate_ema(prices_array, self.slow_period)
+        fast_ema = self._calculate_ema(prices_array, self.fast_macd)
+        slow_ema = self._calculate_ema(prices_array, self.slow_macd)
         macd_line = fast_ema - slow_ema
         signal_line = self._calculate_ema(macd_line, self.signal_period)
         macd_histogram = macd_line - signal_line
@@ -28,7 +33,12 @@ class BatchMacdService:
         return pd.Series(data).ewm(span=period, adjust=False).mean().values
 
     def calculate_ema_midpoints(self, close_prices: List[float]) -> List[float]:
-        return self._calculate_ema(np.array(close_prices), self.fast_period).tolist()
+        prices_array = np.array(close_prices)
+        fast_ema = self._calculate_ema(prices_array, self.fast_period)  # 24
+        slow_ema = self._calculate_ema(prices_array, self.slow_period)  # 52
+        ema_midpoint = (fast_ema + slow_ema) / 2
+        return ema_midpoint.tolist()
+
 
     def _trigger_signal(self, i: int, signal_number: int, condition: str, triggered: List[str]):
         for n in range(1, signal_number + 1):

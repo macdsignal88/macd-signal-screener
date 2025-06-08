@@ -180,7 +180,8 @@ const createColumns = (
       }
       
       const currentParams = new URLSearchParams(window.location.search);
-      const url = `/stock/${encodeURIComponent(row.original.symbol)}${currentParams.toString() ? `?${currentParams.toString()}` : ''}`;
+      const baseUrl = window.location.origin;
+      const url = `${baseUrl}/stock/${encodeURIComponent(row.original.symbol)}${currentParams.toString() ? `?${currentParams.toString()}` : ''}`;
       
       return (
         <a 
@@ -188,7 +189,7 @@ const createColumns = (
           className="flex flex-col cursor-pointer hover:text-primary transition-colors"
           onClick={(e) => {
             e.preventDefault();
-            window.open(url, '_blank');
+            window.open(url, '_blank', 'noopener,noreferrer');
           }}
         >
           <span className="font-medium">{row.original.symbol}</span>
