@@ -3,7 +3,7 @@ import StockTable from '@/components/StockTable';
 
 const Index = () => {
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen w-full">
       <div className="w-full">
         <StockTable />
       </div>

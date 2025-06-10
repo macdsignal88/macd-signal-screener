@@ -543,10 +543,19 @@ export const StockTable: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.SIGNAL_CONFIG, JSON.stringify(enabledSignals));
   }, [enabledSignals]);
 
-  // Update handleTimeframesChange to ensure signals are generated for all timeframes
+  // Update handleTimeframesChange to avoid reloading when only adding timeframes
   const handleTimeframesChange = (newTimeframes: TimeFrame[]) => {
     try {
+      // Check if we're only adding timeframes (newTimeframes is a superset of selectedTimeframes)
+      const isOnlyAdding = newTimeframes.length > selectedTimeframes.length && 
+        selectedTimeframes.every(tf => newTimeframes.includes(tf));
+      
       setSelectedTimeframes(newTimeframes);
+      
+      // Only reload data if we're removing timeframes
+      if (!isOnlyAdding) {
+        loadStocks();
+      }
     } catch (error) {
       console.error('Error saving timeframes:', error);
       toast({
@@ -801,10 +810,10 @@ export const StockTable: React.FC = () => {
 
   return (
     <Profiler id="StockTable" onRender={onRenderCallback}>
-      <div className="w-full p-4">
+      <div className="w-full p-2 sm:p-4">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <h1 className="text-2xl font-bold sm:text-3xl">MACD Signal Screener</h1>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               {lastUpdated && (
                 <span>Last updated: {lastUpdated}</span>
@@ -816,7 +825,7 @@ export const StockTable: React.FC = () => {
               )}
             </div>
             <ThemeToggle />
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <div className="relative flex-1 min-w-[200px]">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                 <Input
@@ -836,7 +845,7 @@ export const StockTable: React.FC = () => {
                 value={selectedAssetType}
                 onChange={(e) => {
                   setSelectedAssetType(e.target.value);
-                  setPageIndex(0); // Reset to first page when changing asset type
+                  setPageIndex(0);
                 }}
                 className="h-9 px-3 py-1 bg-background border border-input rounded-md"
               >
@@ -880,14 +889,14 @@ export const StockTable: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mt-4">
           <div className="flex items-center space-x-2">
             <Switch
               id="watchlist-filter"
               checked={showWatchlistOnly}
               onCheckedChange={() => {
                 setShowWatchlistOnly(!showWatchlistOnly);
-                setPageIndex(0); // Reset to first page when toggling watchlist
+                setPageIndex(0);
               }}
             />
             <Label htmlFor="watchlist-filter" className="cursor-pointer">Show watchlist only</Label>
@@ -900,7 +909,7 @@ export const StockTable: React.FC = () => {
           )}
         </div>
 
-        <div className="glass-card rounded-lg overflow-hidden">
+        <div className="glass-card rounded-lg overflow-hidden mt-4">
           {loading ? (
             <div className="p-8 flex flex-col items-center justify-center">
               <Progress value={30} className="w-64 animate-pulse" />
@@ -916,7 +925,7 @@ export const StockTable: React.FC = () => {
                         {headerGroup.headers.map(header => (
                           <th
                             key={header.id}
-                            className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
+                            className="px-2 sm:px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
                             style={{ width: header.getSize() }}
                           >
                             {header.isPlaceholder
@@ -945,11 +954,11 @@ export const StockTable: React.FC = () => {
                   </tbody>
                 </table>
               </div>
-              <div className="flex justify-between items-center py-4">
+              <div className="flex flex-wrap justify-between items-center p-2 sm:p-4 gap-2">
                 <div>
                   Page {pageIndex + 1} of {totalPages}
                 </div>
-                <div className="flex gap-2 items-center">
+                <div className="flex flex-wrap gap-2 items-center">
                   <Button 
                     onClick={() => setPageIndex(0)} 
                     disabled={pageIndex === 0}
@@ -979,7 +988,7 @@ export const StockTable: React.FC = () => {
                     value={pageSize}
                     onChange={e => {
                       setPageSize(Number(e.target.value));
-                      setPageIndex(0); // Reset to first page when changing page size
+                      setPageIndex(0);
                     }}
                     className="border rounded px-2 py-1"
                   >
@@ -992,18 +1001,6 @@ export const StockTable: React.FC = () => {
             </>
           )}
         </div>
-        <SettingsDialog
-          selectedTimeframes={selectedTimeframes}
-          macdDays={macdDays}
-          priceChartDays={priceChartDays}
-          enabledSignals={enabledSignals}
-          signalPersistenceDays={signalPersistenceDays}
-          onTimeframesChange={handleTimeframesChange}
-          onMacdDaysChange={handleMacdDaysChange}
-          onPriceChartDaysChange={handlePriceChartDaysChange}
-          onSignalConfigChange={handleSignalConfigChange}
-          onSignalPersistenceDaysChange={handleSignalPersistenceDaysChange}
-        />
       </div>
     </Profiler>
   );
