@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { checkAccess } from '@/lib/allowedUsersService';
 import { supabase } from '@/lib/supabaseAuth';
 import { useNavigate } from 'react-router-dom';
 
@@ -20,20 +21,11 @@ const AuthCallback = () => {
           return;
         }
 
-        // Check if user's email is allowed
-        const response = await fetch(`${BACKEND_URL}/api/v1/check-access`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`
-          },
-          body: JSON.stringify({ email: session.user.email })
-        });
+        // Check if user's email is allowed using our frontend service
+        const isAllowed = await checkAccess(session.user.email!);
 
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.detail || 'Access denied');
+        if (!isAllowed) {
+          throw new Error('Your email is not authorized to access this application');
         }
 
         // If access is granted, redirect to home
