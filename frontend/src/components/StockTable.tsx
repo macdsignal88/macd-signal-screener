@@ -801,7 +801,7 @@ export const StockTable: React.FC = () => {
 
   return (
     <Profiler id="StockTable" onRender={onRenderCallback}>
-      <div className="container mx-auto p-4">
+      <div className="w-full p-4">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <h1 className="text-2xl font-bold sm:text-3xl">MACD Signal Screener</h1>
           <div className="flex items-center gap-4">
