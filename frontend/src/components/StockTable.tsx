@@ -185,12 +185,18 @@ const createColumns = (
       
       return (
         <a 
-          href={url}
           className="flex flex-col cursor-pointer hover:text-primary transition-colors"
           onClick={(e) => {
             e.preventDefault();
-            window.open(url, '_blank', 'noopener,noreferrer');
+            console.log('Opening stock in new tab:', url);
+            const newWindow = window.open(url, '_blank', 'noopener,noreferrer');
+            if (!newWindow) {
+              console.warn('Popup blocked or failed to open new window');
+              // Fallback: do nothing, or show a message
+            }
           }}
+          tabIndex={0}
+          role="link"
         >
           <span className="font-medium">{row.original.symbol}</span>
           <span className="text-sm text-muted-foreground">{companyName}</span>
@@ -507,19 +513,7 @@ export const StockTable: React.FC = () => {
     });
   };
 
-  const handleNameClick = (symbol: string, event: React.MouseEvent) => {
-    // Get current URL parameters
-    const currentParams = new URLSearchParams(window.location.search);
-    const url = `/stock/${encodeURIComponent(symbol)}${currentParams.toString() ? `?${currentParams.toString()}` : ''}`;
-    
-    if (event.ctrlKey || event.metaKey) {
-      // Ctrl/Cmd + click - open in new tab
-      window.open(url, '_blank');
-    } else {
-      // Left click - navigate in current tab
-      navigate(url);
-    }
-  };
+
 
   // Save settings to local storage when they change
   useEffect(() => {

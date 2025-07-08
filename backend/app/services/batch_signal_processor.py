@@ -20,9 +20,9 @@ class BatchSignalProcessor:
             "3d": ("1d", "3d"),
             "2wk": ("1wk", "2w"),
             "3wk": ("1wk", "3w"),
-            "2mo": ("1mo", "3m"),
-            "4mo": ("1mo", "4m"),
-            "5mo": ("1mo", "5m"),
+            "2mo": ("1mo", "3ME"),
+            "4mo": ("1mo", "4ME"),
+            "5mo": ("1mo", "5ME"),
         }
     async def process_symbols(
         self, 
@@ -83,7 +83,7 @@ class BatchSignalProcessor:
             close_prices = df["Close"].tolist()
             dates = df.index.strftime('%Y-%m-%d').tolist()
 
-            macd_data = self.macd_service.calculate_macd(close_prices, symbol, interval, dates)
+            macd_data = self.macd_service.calculate_macd(close_prices)
             ema_midpoints = self.macd_service.calculate_ema_midpoints(close_prices)
 
             asset_type = asset_types.get(symbol, 'unknown') if asset_types else 'unknown'

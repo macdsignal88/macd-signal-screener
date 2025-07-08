@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 class BatchMacdService:
     def __init__(self):
@@ -11,12 +11,7 @@ class BatchMacdService:
         self.fast_macd = 12
         self.slow_macd = 26
 
-        self.data = None
-        self.in_cycle = False
-        self.current_cycle_step = 0
-
-
-    def calculate_macd(self, prices: List[float], symbol: str, timeframe: str, dates: List[str]) -> Dict[str, List[float]]:
+    def calculate_macd(self, prices: List[float]) -> Dict[str, List[float]]:
         prices_array = np.array(prices)
         fast_ema = self._calculate_ema(prices_array, self.fast_macd)
         slow_ema = self._calculate_ema(prices_array, self.slow_macd)
@@ -34,71 +29,14 @@ class BatchMacdService:
 
     def calculate_ema_midpoints(self, close_prices: List[float]) -> List[float]:
         prices_array = np.array(close_prices)
-        fast_ema = self._calculate_ema(prices_array, self.fast_period)  # 24
-        slow_ema = self._calculate_ema(prices_array, self.slow_period)  # 52
+        fast_ema = self._calculate_ema(prices_array, self.fast_period)
+        slow_ema = self._calculate_ema(prices_array, self.slow_period)
         ema_midpoint = (fast_ema + slow_ema) / 2
         return ema_midpoint.tolist()
 
-
-    def _trigger_signal(self, i: int, signal_number: int, condition: str, triggered: List[str]):
-        for n in range(1, signal_number + 1):
-            self.data.at[i, f'signal_{n}'] = True
-        self.data.at[i, 'meta_condition'] = condition
-        triggered.append(f'signal_{signal_number}')
-
-    def _propagate_signals(self, i: int):
-        for n in range(1, 6):
-            if self.data.at[i - 1, f'signal_{n}']:
-                self.data.at[i, f'signal_{n}'] = True
-            else:
-                break
-
-    def _reset_cycle(self):
-        self.in_cycle = False
-        self.current_cycle_step = 0
-
-    def _handle_post_signal5_hold(self, i: int, cycle_id: int, post_counter: int) -> int:
-        for n in range(1, 6):
-            self.data.at[i, f'signal_{n}'] = True
-        self.data.at[i, 'meta_cycle_id'] = cycle_id
-        self.data.at[i, 'meta_condition'] = "Post signal_5 hold"
-        self.data.at[i, 'triggered_signals'] = [f'hold_day_{post_counter + 1}']
-        return post_counter + 1
-
-    def _should_start_new_cycle(self, macd, signal):
-        return macd < signal and macd > 0
-
-    def _check_signal_2(self, i, macd, triggered):
-        macd_peak_10 = max(self.data.iloc[i - 10:i]['macd_line'])
-        if macd < 0.4 * macd_peak_10:
-            self._trigger_signal(i, 2, "MACD drops 60% from recent 10-candle peak", triggered)
-            self.current_cycle_step = 2
-
-    def _check_signal_3(self, i, close, ema_mid, triggered):
-        if ema_mid is not None and close < ema_mid:
-            self._trigger_signal(i, 3, "Price below EMA midpoint", triggered)
-            self.current_cycle_step = 3
-
-    def _check_signal_4(self, i, hist, prev_hist, prev2_hist, triggered):
-        if abs(hist) < abs(prev_hist) < abs(prev2_hist):
-            self._trigger_signal(i, 4, "Histogram weakens for 3 consecutive bars", triggered)
-            self.current_cycle_step = 4
-
-    def _check_signal_5(self, i, macd, signal, prev_macd, prev_signal, cycle_id, triggered):
-        if macd > signal and prev_macd < prev_signal:
-            if macd > 0 and signal > 0:
-                self._trigger_signal(i, 5, "Bullish MACD crossover above zero (end)", triggered)
-                self.current_cycle_step = 5
-                return 1  # post_signal5_counter = 1
-            else:
-                self._reset_cycle()
-                self.data.at[i, 'meta_cycle_id'] = cycle_id
-                self.data.at[i, 'meta_condition'] = "END CYCLE (bullish crossover below zero)"
-                self.data.at[i, 'triggered_signals'] = ["END_CYCLE"]
-        return 0
-
-    def detect_signals(self, macd_data, close_prices, ema_midpoints, dates) -> pd.DataFrame:
-        self.data = pd.DataFrame({
+    def detect_signals(self, macd_data: Dict[str, List[float]], close_prices: List[float],
+                    ema_midpoints: List[float], dates: List[str]) -> pd.DataFrame:
+        data = pd.DataFrame({
             'macd_line': macd_data['macd_line'],
             'signal_line': macd_data['signal_line'],
             'macd_histogram': macd_data['macd_histogram'],
@@ -108,18 +46,23 @@ class BatchMacdService:
         })
 
         for n in range(1, 6):
-            self.data[f'signal_{n}'] = False
+            data[f'signal_{n}'] = False
 
-        self.data['meta_cycle_id'] = pd.NA
-        self.data['meta_condition'] = pd.NA
-        self.data['triggered_signals'] = None
+        data['meta_cycle_id'] = pd.NA
+        data['meta_condition'] = pd.NA
+        data['triggered_signals'] = None
 
         cycle_id = 0
-        post_signal5_counter = 0
+        in_cycle = False
+        current_cycle_step = 0
+        triggered_signals_in_cycle = set()  # New: Track triggered signals in this cycle
 
-        for i in range(10, len(self.data)):
+        for i in range(10, len(data)):
             try:
-                row, prev_row, prev2_row = self.data.iloc[i], self.data.iloc[i - 1], self.data.iloc[i - 2]
+                row = data.iloc[i]
+                prev_row = data.iloc[i - 1]
+                prev2_row = data.iloc[i - 2]
+
                 macd, signal, hist = row['macd_line'], row['signal_line'], row['macd_histogram']
                 prev_macd, prev_signal = prev_row['macd_line'], prev_row['signal_line']
                 prev_hist, prev2_hist = prev_row['macd_histogram'], prev2_row['macd_histogram']
@@ -127,59 +70,123 @@ class BatchMacdService:
 
                 triggered = []
 
-                if post_signal5_counter > 0:
-                    if self._should_start_new_cycle(macd, signal):
-                        cycle_id += 1
-                        self.in_cycle = True
-                        self.current_cycle_step = 1
-                        post_signal5_counter = 0
-                        self._trigger_signal(i, 1, "Bearish MACD crossover above zero (new cycle during hold)", triggered)
-                        self.data.at[i, 'meta_cycle_id'] = cycle_id
-                        self.data.at[i, 'triggered_signals'] = triggered
-                        continue
-                    post_signal5_counter = self._handle_post_signal5_hold(i, cycle_id, post_signal5_counter)
-                    if post_signal5_counter >= 3:
-                        post_signal5_counter = 0
-                        self._reset_cycle()
+                # Reset cycle if signal_5 was triggered in the previous row
+                if data.at[i - 1, 'signal_5']:
+                    in_cycle = False
+                    current_cycle_step = 0
+                    triggered_signals_in_cycle.clear()
+                    for n in range(1, 6):
+                        data.at[i, f'signal_{n}'] = False
+                    data.at[i, 'meta_condition'] = "Reset after signal_5"
                     continue
 
-                if not self.in_cycle and self._should_start_new_cycle(macd, signal):
+                # Start a new cycle if needed
+                if not in_cycle and self._should_start_new_cycle(macd, signal):
                     cycle_id += 1
-                    self.in_cycle = True
-                    self.current_cycle_step = 1
-                    self._trigger_signal(i, 1, "Bearish MACD crossover above zero", triggered)
-                    self.data.at[i, 'meta_cycle_id'] = cycle_id
-                    self.data.at[i, 'triggered_signals'] = triggered
+                    in_cycle = True
+                    current_cycle_step = 1
+                    triggered_signals_in_cycle = {1}
+                    data, triggered = self._trigger_signal(data, i, 1, "Bearish MACD crossover above zero", triggered)
+                    data.at[i, 'meta_cycle_id'] = cycle_id
+                    data.at[i, 'triggered_signals'] = triggered
                     continue
 
-                if self.in_cycle:
-                    self.data.at[i, 'meta_cycle_id'] = cycle_id
-                    self._propagate_signals(i)
-                    if self.current_cycle_step >= 1 and not self.data.at[i, 'signal_2']:
-                        self._check_signal_2(i, macd, triggered)
-                    if self.current_cycle_step >= 2 and not self.data.at[i, 'signal_3']:
-                        self._check_signal_3(i, close, ema_mid, triggered)
-                    if self.current_cycle_step >= 3 and not self.data.at[i, 'signal_4']:
-                        self._check_signal_4(i, hist, prev_hist, prev2_hist, triggered)
-                    if self.current_cycle_step >= 4 and not self.data.at[i, 'signal_5']:
-                        post_signal5_counter = self._check_signal_5(i, macd, signal, prev_macd, prev_signal, cycle_id, triggered)
+                if in_cycle:
+                    data.at[i, 'meta_cycle_id'] = cycle_id
+                    data = self._propagate_signals(data, i, triggered_signals_in_cycle)
+
+                    if 2 not in triggered_signals_in_cycle:
+                        data, triggered, current_cycle_step = self._check_signal_2(data, i, macd, triggered, current_cycle_step)
+                        if data.at[i, 'signal_2']:
+                            triggered_signals_in_cycle.add(2)
+
+                    if 3 not in triggered_signals_in_cycle:
+                        data, triggered, current_cycle_step = self._check_signal_3(data, i, close, ema_mid, triggered, current_cycle_step)
+                        if data.at[i, 'signal_3']:
+                            triggered_signals_in_cycle.add(3)
+
+                    if 4 not in triggered_signals_in_cycle:
+                        data, triggered, current_cycle_step = self._check_signal_4(data, i, hist, prev_hist, prev2_hist, triggered, current_cycle_step)
+                        if data.at[i, 'signal_4']:
+                            triggered_signals_in_cycle.add(4)
+
+                    if 5 not in triggered_signals_in_cycle:
+                        data, triggered, in_cycle, current_cycle_step = self._check_signal_5(data, i, macd, signal, prev_macd, prev_signal, cycle_id, triggered, current_cycle_step)
+                        if data.at[i, 'signal_5']:
+                            triggered_signals_in_cycle.add(5)
 
                 if triggered:
-                    self.data.at[i, 'triggered_signals'] = triggered
+                    data.at[i, 'triggered_signals'] = triggered
 
             except Exception as e:
                 print(f"Error processing index {i}: {e}")
 
-        for i in range(len(self.data)):
-            for n in range(2, 6):
-                if self.data.at[i, f'signal_{n}']:
-                    for k in range(1, n):
-                        self.data.at[i, f'signal_{k}'] = True
+        return data
 
-        return self.data
 
-    def calculate_signals(self, macd_data: Dict[str, List[float]], close_prices: List[float], ema_midpoints: List[float], symbol: str, timeframe: str, dates: List[str], asset_type: str) -> List[Dict[str, Any]]:
-        self.detect_signals(macd_data, close_prices, ema_midpoints, dates)
+    def _should_start_new_cycle(self, macd: float, signal: float) -> bool:
+        return macd < signal and macd > 0 and signal > 0
+
+    def _trigger_signal(self, data: pd.DataFrame, i: int, signal_number: int,
+                        condition: str, triggered: List[str]) -> Tuple[pd.DataFrame, List[str]]:
+        signal_col = f'signal_{signal_number}'
+        data.at[i, signal_col] = True
+        data.at[i, 'meta_condition'] = condition
+
+        existing = data.at[i, 'triggered_signals']
+        if isinstance(existing, list):
+            if signal_col not in existing:
+                existing.append(signal_col)
+        else:
+            existing = [signal_col]
+
+        data.at[i, 'triggered_signals'] = existing
+        return data, existing
+
+    def _propagate_signals(self, data: pd.DataFrame, i: int, triggered_signals_in_cycle: set) -> pd.DataFrame:
+        for n in triggered_signals_in_cycle:
+            data.at[i, f'signal_{n}'] = True
+        return data
+
+
+    def _not_triggered(self, data: pd.DataFrame, i: int, signal_number: int) -> bool:
+        return not data.at[i, f'signal_{signal_number}']
+
+    def _check_signal_2(self, data, i, macd, triggered, step):
+        macd_peak_10 = max(data.iloc[i - 10:i]['macd_line'])
+        if macd < 0.4 * macd_peak_10:
+            data, triggered = self._trigger_signal(data, i, 2, "MACD drops 60% from recent 10-candle peak", triggered)
+            step = 2
+        return data, triggered, step
+
+    def _check_signal_3(self, data, i, close, ema_mid, triggered, step):
+        if ema_mid is not None and close < ema_mid:
+            data, triggered = self._trigger_signal(data, i, 3, "Price below EMA midpoint", triggered)
+            step = 3
+        return data, triggered, step
+
+    def _check_signal_4(self, data, i, hist, prev_hist, prev2_hist, triggered, step):
+        if abs(hist) < abs(prev_hist) < abs(prev2_hist):
+            data, triggered = self._trigger_signal(data, i, 4, "Histogram weakens for 3 consecutive bars", triggered)
+            step = 4
+        return data, triggered, step
+
+    def _check_signal_5(self, data, i, macd, signal, prev_macd, prev_signal, cycle_id, triggered, step):
+        if macd > signal and prev_macd < prev_signal:
+            if macd > 0 and signal > 0:
+                data, triggered = self._trigger_signal(data, i, 5, "Bullish MACD crossover above zero (end)", triggered)
+                step = 5
+            else:
+                data.at[i, 'meta_cycle_id'] = cycle_id
+                data.at[i, 'meta_condition'] = "END CYCLE (bullish crossover below zero)"
+                data.at[i, 'triggered_signals'] = ["END_CYCLE"]
+                return data, triggered, False, 0
+        return data, triggered, True, step
+
+    def calculate_signals(self, macd_data: Dict[str, List[float]], close_prices: List[float],
+                          ema_midpoints: List[float], symbol: str, timeframe: str,
+                          dates: List[str], asset_type: str) -> List[Dict[str, Any]]:
+        self.data = self.detect_signals(macd_data, close_prices, ema_midpoints, dates)
         self.data['symbol'] = symbol
         self.data['timeframe'] = timeframe
         self.data['ema_mid'] = ema_midpoints

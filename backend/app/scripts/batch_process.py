@@ -3,7 +3,7 @@ from datetime import datetime
 import json
 from app.services.batch_signal_processor import batch_signal_processor
 
-# Load the symbol data from the JSON file
+#Load the symbol data from the JSON file
 with open("symbols_yf.json", "r") as f:
     data = json.load(f)
 
@@ -15,6 +15,8 @@ for category, symbol_list in data.items():
     for symbol in symbol_list:
         symbols.append(symbol)
         asset_types[symbol] = category 
+# symbols = ["AAPL"]
+# asset_types = {"AAPL": "S&P500"} 
 
 # Define all intervals to fetch
 intervals = [

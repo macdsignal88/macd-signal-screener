@@ -95,7 +95,7 @@ class MacdService:
                     current_cycle_step = 0  # Reset the cycle
                 cycle_id += 1  # New cycle when signal_1 is detected
                 self.data.loc[self.data.index[i], 'signal_1'] = True
-                self.data.loc[self.data.index[i], 'meta_cycle_id'] = cycle_id
+                self.data.at[i, 'meta_cycle_id'] = cycle_id
                 self.data.loc[self.data.index[i], 'meta_condition'] = "Bearish MACD crossover above zero"
                 current_cycle_step = 1
                 continue
@@ -103,7 +103,7 @@ class MacdService:
             # Signal 2: MACD drops significantly from previous high
             if current_cycle_step == 1 and macd < 0.4 * max(prev_macd, macd):
                 self.data.loc[self.data.index[i], 'signal_2'] = True
-                self.data.loc[self.data.index[i], 'meta_cycle_id'] = cycle_id
+                self.data.at[i, 'meta_cycle_id'] = cycle_id
                 self.data.loc[self.data.index[i], 'meta_condition'] = "MACD dropped 60% from previous peak"
                 current_cycle_step = 2
                 continue
@@ -112,7 +112,7 @@ class MacdService:
             macd_slope = macd - prev_macd
             if current_cycle_step == 2 and macd_slope <= -0.1:
                 self.data.loc[self.data.index[i], 'signal_3'] = True
-                self.data.loc[self.data.index[i], 'meta_cycle_id'] = cycle_id
+                self.data.at[i, 'meta_cycle_id'] = cycle_id
                 self.data.loc[self.data.index[i], 'meta_condition'] = "MACD steeply downward"
                 current_cycle_step = 3
                 continue
@@ -120,7 +120,7 @@ class MacdService:
             # Signal 4: Price crosses EMA midpoint
             if current_cycle_step == 3 and ema_mid is not None and close < ema_mid:
                 self.data.loc[self.data.index[i], 'signal_4'] = True
-                self.data.loc[self.data.index[i], 'meta_cycle_id'] = cycle_id
+                self.data.at[i, 'meta_cycle_id'] = cycle_id
                 self.data.loc[self.data.index[i], 'meta_condition'] = "Close below EMA midpoint"
                 current_cycle_step = 4
                 continue
@@ -128,7 +128,7 @@ class MacdService:
             # Signal 5: Histogram weakening (3 bars down in a row)
             if current_cycle_step == 4 and hist < prev_hist < prev2_hist:
                 self.data.loc[self.data.index[i], 'signal_5'] = True
-                self.data.loc[self.data.index[i], 'meta_cycle_id'] = cycle_id
+                self.data.at[i, 'meta_cycle_id'] = cycle_id
                 self.data.loc[self.data.index[i], 'meta_condition'] = "Histogram weakening 3 bars"
                 current_cycle_step = 5
                 continue
@@ -136,7 +136,7 @@ class MacdService:
             # Signal 6: MACD starts turning up (reversal)
             if current_cycle_step == 5 and macd > prev_macd and prev_macd < prev2_macd:
                 self.data.loc[self.data.index[i], 'signal_6'] = True
-                self.data.loc[self.data.index[i], 'meta_cycle_id'] = cycle_id
+                self.data.at[i, 'meta_cycle_id'] = cycle_id
                 self.data.loc[self.data.index[i], 'meta_condition'] = "MACD upward reversal"
                 current_cycle_step = 6
                 continue
@@ -144,7 +144,7 @@ class MacdService:
             # Signal 7: Bullish MACD crossover
             if current_cycle_step == 6 and (prev_macd < prev_signal) and (macd > signal):
                 self.data.loc[self.data.index[i], 'signal_7'] = True
-                self.data.loc[self.data.index[i], 'meta_cycle_id'] = cycle_id
+                self.data.at[i, 'meta_cycle_id'] = cycle_id
                 self.data.loc[self.data.index[i], 'meta_condition'] = "Bullish MACD crossover"
                 current_cycle_step = 0  # Reset after cycle completes
                 continue

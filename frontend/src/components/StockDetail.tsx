@@ -39,6 +39,16 @@ interface TradingViewWidgetConfig {
   enable_publishing: boolean;
   allow_symbol_change: boolean;
   container_id: string;
+  studies: string[];
+  studies_overrides: {
+    [key: string]: {
+      fastLength?: number;
+      slowLength?: number;
+      signalLength?: number;
+      showVolume?: boolean;
+      selected?: boolean;
+    };
+  };
 }
 
 const TradingViewWidget: React.FC<{ symbol: string }> = ({ symbol }) => {
@@ -71,7 +81,17 @@ const TradingViewWidget: React.FC<{ symbol: string }> = ({ symbol }) => {
           toolbar_bg: '#f1f3f6',
           enable_publishing: false,
           allow_symbol_change: true,
-          container_id: 'tradingview_widget'
+          container_id: 'tradingview_widget',
+          studies: ['MACD@tv-basicstudies'],
+          studies_overrides: {
+            "MACD@tv-basicstudies": {
+              "fastLength": 12,
+              "slowLength": 26,
+              "signalLength": 9,
+              "showVolume": false,
+              "selected": true
+            }
+          }
         });
       }
     };
