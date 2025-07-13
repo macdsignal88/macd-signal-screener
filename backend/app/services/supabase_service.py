@@ -29,7 +29,7 @@ class SupabaseService:
             batch = signals[i:i+batch_size]
             try:
                 response = self.client.table("macd_signals") \
-                    .upsert(batch, on_conflict='symbol,timeframe,date') \
+                    .upsert(batch, on_conflict='symbol,timeframe,date,side') \
                     .execute()
                 print(f"✅ Inserted batch {i//batch_size + 1}, size: {len(batch)}")
             except Exception as e:

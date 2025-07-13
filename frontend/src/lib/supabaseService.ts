@@ -21,18 +21,23 @@ const calculatePriceChange = (priceHistory: PriceData[]): number => {
 };
 
 export const getLatestCreatedAt = async (): Promise<Date | null> => {
-  const { data, error } = await supabase
-    .from("macd_signals")
-    .select("created_at")
-    .order("created_at", { ascending: false })
-    .limit(1);
+  try {
+    const { data, error } = await supabase
+      .from("macd_signals")
+      .select("created_at")
+      .order("created_at", { ascending: false })
+      .limit(1);
 
-  if (error) {
-    console.error("Error fetching latest created_at:", error);
+    if (error) {
+      console.error("Error fetching latest created_at:", error);
+      return null;
+    }
+
+    return data?.[0]?.created_at ? new Date(data[0].created_at) : null;
+  } catch (error) {
+    console.error("Exception fetching latest created_at:", error);
     return null;
   }
-
-  return data?.[0]?.created_at ? new Date(data[0].created_at) : null;
 };
 
 
@@ -205,12 +210,21 @@ const getUniqueSymbolCount = async () => {
 };
 
 // 3. Fetch latest daily signals
-const getLatestSignals = async (assetType?: string, searchQuery?: string): Promise<MacdSignal[]> => {
+const getLatestSignals = async (assetType?: string, searchQuery?: string, side: 'buy' | 'sell' = 'buy'): Promise<MacdSignal[]> => {
   try {
+    // Use a much smaller date range - just the last 7 days to prevent timeout
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const dateFilter = sevenDaysAgo.toISOString().split('T')[0];
+    
+    console.log('Fetching signals for date range:', dateFilter, 'to now, side:', side);
+    
     let query = supabase
       .from('macd_signals')
       .select('*')
-      .order('date', { ascending: false });
+      .eq('side', side)
+      .gte('date', dateFilter) // Only last 7 days
+      .order('date', { ascending: false })
+      .limit(500); // Reduced limit to prevent timeout
 
     // Apply asset type filter if provided
     if (assetType) {
@@ -245,19 +259,25 @@ const getLatestSignals = async (assetType?: string, searchQuery?: string): Promi
 
     const { data, error } = await query;
 
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase error fetching latest signals:', error);
+      return [];
+    }
+    
+    console.log('Successfully fetched', data?.length || 0, 'signals');
     return data || [];
   } catch (error) {
-    console.error('Error fetching latest signals:', error);
+    console.error('Exception fetching latest signals:', error);
     return [];
   }
 };
 
-const getSingleSignal = async (symbol: string, searchQuery?: string) => {
+const getSingleSignal = async (symbol: string, searchQuery?: string, side: 'buy' | 'sell' = 'buy') => {
   let query =supabase
   .from('macd_signals')
   .select('*')
   .eq('symbol', symbol)
+  .eq('side', side)
   .order('date', { ascending: false });
 
   if (searchQuery) {
@@ -273,7 +293,8 @@ const getSingleSignal = async (symbol: string, searchQuery?: string) => {
 export const getWatchlistSignals = async (
   symbols: string[],
   assetType?: string,
-  searchQuery?: string
+  searchQuery?: string,
+  side: 'buy' | 'sell' = 'buy'
 ): Promise<MacdSignal[]> => {
   if (!symbols.length) return [];
 
@@ -281,6 +302,7 @@ export const getWatchlistSignals = async (
     .from('macd_signals')
     .select('*')
     .in('symbol', symbols)
+    .eq('side', side)
     .order('date', { ascending: false });
 
   if (error) {
@@ -326,34 +348,72 @@ const paginateSymbols = (symbols: string[], page: number, pageSize: number) => {
 };
 
 // 6. Fetch all timeframes data
-const getAllTimeframesData = async (symbols: string[]) => {
-  const { data, error } = await supabase
-    .from('macd_signals')
-    .select('*')
-    .in('symbol', symbols)
-    .in('timeframe', TIMEFRAMES)
-    .order('date', { ascending: false });
+const getAllTimeframesData = async (symbols: string[], side: 'buy' | 'sell' = 'buy') => {
+  try {
+    // Use a smaller date range for timeframe data too
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const dateFilter = sevenDaysAgo.toISOString().split('T')[0];
+    
+    console.log('Fetching timeframe data for symbols:', symbols.length, 'date range:', dateFilter, 'to now, side:', side);
+    
+    const { data, error } = await supabase
+      .from('macd_signals')
+      .select('*')
+      .in('symbol', symbols)
+      .in('timeframe', TIMEFRAMES)
+      .eq('side', side)
+      .gte('date', dateFilter) // Only last 7 days
+      .order('date', { ascending: false })
+      .limit(2000); // Reduced limit to prevent timeout
 
-  if (error) throw error;
-  return data;
+    if (error) {
+      console.error('Error fetching timeframes data:', error);
+      return [];
+    }
+    
+    console.log('Successfully fetched', data?.length || 0, 'timeframe records');
+    return data || [];
+  } catch (error) {
+    console.error('Exception fetching timeframes data:', error);
+    return [];
+  }
 };
 
-// 7. Fetch historical data (180 days)
-const getHistoricalData = async (symbols: string[]) => {
-  const allData = await Promise.all(
-    symbols.map(async (symbol) => {
-      const { data, error } = await supabase
-        .from('macd_signals')
-        .select('*')
-        .eq('symbol', symbol)
-        .order('date', { ascending: false });
+// 7. Fetch historical data (30 days max to prevent timeout)
+const getHistoricalData = async (symbols: string[], side: 'buy' | 'sell' = 'buy') => {
+  try {
+    // Use a smaller date range for historical data
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const dateFilter = thirtyDaysAgo.toISOString().split('T')[0];
+    
+    console.log('Fetching historical data for symbols:', symbols.length, 'date range:', dateFilter, 'to now, side:', side);
+    
+    const allData = await Promise.all(
+      symbols.map(async (symbol) => {
+        const { data, error } = await supabase
+          .from('macd_signals')
+          .select('*')
+          .eq('symbol', symbol)
+          .eq('side', side)
+          .gte('date', dateFilter) // Only last 30 days
+          .order('date', { ascending: false })
+          .limit(100); // Limit per symbol to prevent timeout
 
-      if (error) throw error;
-      return data.reverse(); // Return in chronological order
-    })
-  );
+        if (error) {
+          console.error(`Error fetching historical data for ${symbol}:`, error);
+          return [];
+        }
+        return data.reverse(); // Return in chronological order
+      })
+    );
 
-  return allData.flat(); 
+    const flatData = allData.flat();
+    console.log('Successfully fetched', flatData.length, 'historical records');
+    return flatData;
+  } catch (error) {
+    console.error('Exception fetching historical data:', error);
+    return [];
+  }
 };
 
 
@@ -466,15 +526,27 @@ export const fetchStocksPageFromSupabase = async (
   enabledSignals?: SignalDisplayConfig[],
   signalPersistenceDays?: number,
   assetType?: string,
-  searchQuery?: string
+  searchQuery?: string,
+  side: 'buy' | 'sell' = 'buy'
 ): Promise<{ data: SingleStockWithMacdHistory[]; total: number; uniqueSymbolCount: number }> => {
   try {
+    console.log('Starting fetchStocksPageFromSupabase with side:', side);
+    
     // Get total count with search filter
     const total = await getSymbolCount(assetType, searchQuery);
     const uniqueSymbolCount = await getUniqueSymbolCount();
 
     // Get latest signals with search filter
-    const latestSignals = await getLatestSignals(assetType, searchQuery);
+    const latestSignals = await getLatestSignals(assetType, searchQuery, side);
+    
+    // If no signals returned, try with an even smaller date range
+    if (!latestSignals || latestSignals.length === 0) {
+      console.log('No signals returned, trying with smaller date range...');
+      // This would require modifying getLatestSignals to accept a date range parameter
+      // For now, we'll return empty data
+      return { data: [], total: 0, uniqueSymbolCount: 0 };
+    }
+    
     const latestBySymbol = new Map(latestSignals.map(s => [s.symbol, s]));
 
     let sortedSymbols: string[];
@@ -504,14 +576,15 @@ export const fetchStocksPageFromSupabase = async (
     const paginatedSymbols = paginateSymbols(sortedSymbols, page, pageSize);
 
     const [timeframesData, historicalData] = await Promise.all([
-      getAllTimeframesData(paginatedSymbols),
-      getHistoricalData(paginatedSymbols)
+      getAllTimeframesData(paginatedSymbols, side),
+      getHistoricalData(paginatedSymbols, side)
     ]);
 
     const grouped = groupData(timeframesData, historicalData);
 
     const result = buildStockResult(paginatedSymbols, latestBySymbol, grouped);
 
+    console.log('Successfully built result with', result.length, 'stocks');
     return { data: result, total, uniqueSymbolCount };
   } catch (error) {
     console.error('Error fetching stocks:', error);
@@ -524,12 +597,13 @@ export const fetchWatchlistStocksFromSupabase = async (
   assetType?: string,
   page: number = 0,
   pageSize: number = 20,
-  sortConfig?: SortConfig
+  sortConfig?: SortConfig,
+  side: 'buy' | 'sell' = 'buy'
 ): Promise<{ data: SingleStockWithMacdHistory[]; total: number; uniqueSymbolCount: number }> => {
   try {
     if (!watchlistSymbols.length) return { data: [], total: 0, uniqueSymbolCount: 0 };
 
-    const latestSignals = await getWatchlistSignals(watchlistSymbols);
+    const latestSignals = await getWatchlistSignals(watchlistSymbols, assetType, undefined, side);
 
     const latestBySymbol = new Map(
       latestSignals
@@ -558,8 +632,8 @@ export const fetchWatchlistStocksFromSupabase = async (
 
 
     const [timeframesData, historicalData] = await Promise.all([
-      getAllTimeframesData(paginatedSymbols),
-      getHistoricalData(paginatedSymbols)
+      getAllTimeframesData(paginatedSymbols, side),
+      getHistoricalData(paginatedSymbols, side)
     ]);
 
     const grouped = groupData(timeframesData, historicalData);
@@ -600,10 +674,11 @@ type TriggeredEntry = {
 };
 
 export const getStockTriggeredSignals = async (
-  symbol: string
+  symbol: string,
+  side: 'buy' | 'sell' = 'buy'
 ): Promise<StockSignalResponse | undefined> => {
   try {
-    const signals = await getSingleSignal(symbol);
+    const signals = await getSingleSignal(symbol, undefined, side);
     if (!signals || signals.length === 0) return undefined;
 
     const groupedByTimeframe: Record<string, TriggeredSignalRecord[]> = {};

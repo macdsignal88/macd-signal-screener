@@ -88,17 +88,18 @@ class BatchSignalProcessor:
 
             asset_type = asset_types.get(symbol, 'unknown') if asset_types else 'unknown'
 
-            signals = self.macd_service.calculate_signals(
-                macd_data=macd_data,
-                close_prices=close_prices,
-                ema_midpoints=ema_midpoints,
-                symbol=symbol,
-                timeframe=interval,
-                dates=dates,
-                asset_type=asset_type
-            )
-
-            all_signals.extend(signals)
+            for side in ['buy', 'sell']:
+                    signals = self.macd_service.calculate_signals(
+                        macd_data=macd_data,
+                        close_prices=close_prices,
+                        ema_midpoints=ema_midpoints,
+                        symbol=symbol,
+                        timeframe=interval,
+                        dates=dates,
+                        asset_type=asset_type,
+                        side=side
+                    )
+                    all_signals.extend(signals)
 
         deduped_signals = self.deduplicate_signals(all_signals)
         if deduped_signals:
@@ -130,7 +131,7 @@ class BatchSignalProcessor:
         deduped = []
 
         for signal in signals:
-            key = (signal['symbol'], signal['timeframe'], signal['date'])
+            key = (signal['symbol'], signal['timeframe'], signal['date'], signal['side'])
             if key not in unique_keys:
                 unique_keys.add(key)
                 deduped.append(signal)

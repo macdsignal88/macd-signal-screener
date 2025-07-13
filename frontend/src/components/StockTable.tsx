@@ -9,7 +9,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from '@tanstack/react-table';
-import React, { Profiler, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Profiler, memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Signal, SignalDisplayConfig, SignalFlags, SingleStockWithMacdHistory, SortConfig, SortDirection, SortField, StockWithMacdHistory, TimeFrame } from '@/lib/types';
 import { fetchStocksPageFromSupabase, fetchWatchlistStocksFromSupabase, getLatestCreatedAt } from '@/lib/supabaseService';
 import { formatPercent, formatPrice } from '@/lib/macdService';
@@ -318,7 +318,7 @@ const createColumns = (
   },
 ];
 
-export const StockTable: React.FC = () => {
+const StockTableComponent: React.FC = () => {
   const { 
     selectedTimeframes, 
     macdDays, 
@@ -362,6 +362,15 @@ export const StockTable: React.FC = () => {
   const [lastCacheTime, setLastCacheTime] = useState<number | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [cache, setCache] = useState<Cache>({});
+  const [mode, setMode] = useState<'buy' | 'sell'>('buy');
+  
+  // Debounced mode change to prevent excessive API calls
+  const debouncedSetMode = useCallback(
+    debounce((newMode: 'buy' | 'sell') => {
+      setMode(newMode);
+    }, 300),
+    []
+  );
 
   // Get sorted timeframes for display
   const sortedSelectedTimeframes = useMemo(() => 
@@ -371,32 +380,72 @@ export const StockTable: React.FC = () => {
 
   // Add cache functions
   const getCachedData = (key: string): CacheData | null => {
+    // Check component state cache first
     const cached = cache[key];
-    if (!cached) return null;
-    
-    const now = Date.now();
-    if (now - cached.timestamp > 5 * 60 * 1000) { // 5 minutes cache
-      delete cache[key];
-      return null;
+    if (cached) {
+      const now = Date.now();
+      if (now - cached.timestamp > 5 * 60 * 1000) { // 5 minutes cache
+        setCache(prev => {
+          const newCache = { ...prev };
+          delete newCache[key];
+          return newCache;
+        });
+        return null;
+      }
+      return cached;
     }
     
-    return cached;
+    // Check global cache as fallback
+    const globalCached = stockCache[key];
+    if (globalCached) {
+      const now = Date.now();
+      if (now - globalCached.timestamp > 5 * 60 * 1000) { // 5 minutes cache
+        delete stockCache[key];
+        return null;
+      }
+      // Move from global cache to component cache
+      setCachedData(key, globalCached.data, globalCached.total, globalCached.uniqueSymbolCount);
+      return globalCached;
+    }
+    
+    return null;
   };
 
   const setCachedData = (key: string, data: SingleStockWithMacdHistory[], total: number, uniqueSymbolCount: number) => {
+    const cacheData = {
+      data,
+      total,
+      uniqueSymbolCount,
+      timestamp: Date.now()
+    };
+    
+    // Update component state cache
     setCache(prev => ({
       ...prev,
-      [key]: {
-        data,
-        total,
-        uniqueSymbolCount,
-        timestamp: Date.now()
-      }
+      [key]: cacheData
     }));
+    
+    // Also update global cache
+    stockCache[key] = cacheData;
+    
+    // Persist to localStorage
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify(stockCache));
+    } catch (error) {
+      console.error('Error saving cache to localStorage:', error);
+    }
   };
 
   const clearCache = () => {
     setCache({});
+    // Clear global cache
+    Object.keys(stockCache).forEach(key => delete stockCache[key]);
+    // Clear localStorage
+    try {
+      localStorage.removeItem(CACHE_KEY);
+    } catch (error) {
+      console.error('Error clearing cache from localStorage:', error);
+    }
   };
 
   // Update search handler to trigger search immediately
@@ -425,13 +474,14 @@ export const StockTable: React.FC = () => {
         macdDays,
         priceChartDays,
         enabledSignals,
-        signalPersistenceDays
+        signalPersistenceDays,
+        mode
       });
 
       // Try to get cached data first
       const cachedData = getCachedData(cacheKey);
       if (cachedData) {
-        console.log('Using cached data for page:', page);
+        console.log('Using cached data for page:', page, 'with', cachedData.data.length, 'stocks');
         setStocks(cachedData.data);
         setTotalRows(cachedData.total);
         setUniqueSymbolCount(cachedData.uniqueSymbolCount);
@@ -439,9 +489,18 @@ export const StockTable: React.FC = () => {
         return;
       }
 
+      console.log('No cached data found, fetching from database...');
+      console.log('Cache key:', cacheKey);
+      console.log('Current cache state:', Object.keys(cache).length, 'entries');
+      console.log('Global cache state:', Object.keys(stockCache).length, 'entries');
+
       // If no cached data, fetch from Supabase
+      console.log('Fetching data with mode:', mode);
       const { data, total, uniqueSymbolCount } = showWatchlistOnly
-        ? await fetchWatchlistStocksFromSupabase(watchlist, selectedAssetType)
+        ? await fetchWatchlistStocksFromSupabase(watchlist, selectedAssetType, pageIndex, pageSize, sorting.length > 0 ? {
+            field: sorting[0].id as SortField,
+            direction: sorting[0].desc ? 'desc' : 'asc'
+          } : sortConfig, mode)
         : await fetchStocksPageFromSupabase(
             pageIndex,
             pageSize,
@@ -455,8 +514,11 @@ export const StockTable: React.FC = () => {
             enabledSignals,
             signalPersistenceDays,
             selectedAssetType,
-            searchQuery
+            searchQuery,
+            mode
           );
+
+      console.log('Fetched data:', { dataLength: data?.length, total, uniqueSymbolCount });
 
       // Cache the fetched data
       console.log('Caching data for page:', page);
@@ -477,7 +539,7 @@ export const StockTable: React.FC = () => {
       const endTime = performance.now();
       console.log(`[Performance] loadStocks took ${(endTime - startTime).toFixed(2)}ms`);
     }
-  }, [pageIndex, pageSize, selectedAssetType, searchQuery, sorting, showWatchlistOnly, watchlist, toast, selectedTimeframes, macdDays, priceChartDays, enabledSignals, signalPersistenceDays, sortConfig]);
+  }, [pageIndex, pageSize, selectedAssetType, searchQuery, sorting, showWatchlistOnly, watchlist, selectedTimeframes, macdDays, priceChartDays, enabledSignals, signalPersistenceDays, sortConfig, mode]);
 
   // Memoize filtered stocks
   const filteredStocks = useMemo(() => {
@@ -538,7 +600,7 @@ export const StockTable: React.FC = () => {
   }, [enabledSignals]);
 
   // Update handleTimeframesChange to avoid reloading when only adding timeframes
-  const handleTimeframesChange = (newTimeframes: TimeFrame[]) => {
+  const handleTimeframesChange = useCallback((newTimeframes: TimeFrame[]) => {
     try {
       // Check if we're only adding timeframes (newTimeframes is a superset of selectedTimeframes)
       const isOnlyAdding = newTimeframes.length > selectedTimeframes.length && 
@@ -558,10 +620,10 @@ export const StockTable: React.FC = () => {
         variant: 'destructive',
       });
     }
-  };
+  }, [selectedTimeframes, loadStocks, toast]);
 
   // Filter signals based on enabled configuration
-  const getFilteredSignals = (timeframeSignals: SignalFlags[] | null, timeFrame: TimeFrame) => {
+  const getFilteredSignals = useCallback((timeframeSignals: SignalFlags[] | null, timeFrame: TimeFrame) => {
     if (!timeframeSignals || timeframeSignals.length === 0) {
       return enabledSignals
         .filter(config => config.enabled)
@@ -589,7 +651,7 @@ export const StockTable: React.FC = () => {
         date: latestSignal.date
       };
     });
-  };
+  }, [enabledSignals]);
   
 
   // Update handleMacdDaysChange to ensure signals are generated for all timeframes
@@ -679,8 +741,8 @@ export const StockTable: React.FC = () => {
     }
   }, [searchParams]);
 
-  // Update handleSort to handle both sorting state and URL updates
-  const handleSort = (field: SortField) => {
+    // Update handleSort to handle both sorting state and URL updates
+  const handleSort = useCallback((field: SortField) => {
     console.log('handleSort called with field:', field);
     const sortField = field === '2d' || field === '3d' || field === '5d' ? field : field;
     
@@ -691,7 +753,7 @@ export const StockTable: React.FC = () => {
         currentSort,
         field: sortField
       });
-
+      
       const newSorting = currentSort
         ? prev.map(sort => 
             sort.id === sortField 
@@ -714,7 +776,7 @@ export const StockTable: React.FC = () => {
       
       return newSorting;
     });
-  };
+  }, [setSearchParams]);
 
   // Add function to fetch last update time
   const fetchLastUpdate = async () => {
@@ -726,6 +788,8 @@ export const StockTable: React.FC = () => {
       }
     } catch (error) {
       console.error("Error fetching last update time:", error);
+      // Set a fallback date if the API fails
+      setLastUpdated(new Date().toISOString().split("T")[0]);
     }
   };
   
@@ -754,7 +818,7 @@ export const StockTable: React.FC = () => {
       setSelectedTimeFrame,
       navigate
     ),
-    [sortedSelectedTimeframes, sorting, priceChartDays, macdDays, selectedTimeFrame]
+    [sortedSelectedTimeframes, sorting, priceChartDays, macdDays, selectedTimeFrame, handleSort, getFilteredSignals, getTotalPositiveSignals, setSelectedTimeFrame, navigate]
   );
 
   // Initialize table
@@ -818,69 +882,50 @@ export const StockTable: React.FC = () => {
                 </span>
               )}
             </div>
-            <ThemeToggle />
-            <div className="flex flex-wrap gap-2">
-              <div className="relative flex-1 min-w-[200px]">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                <Input
-                  type="text"
-                  placeholder="Search stocks..."
-                  onChange={handleSearchChange}
-                  className="pl-9 h-9"
-                  disabled={isSearching}
+            {/* Group ThemeToggle and Buy/Sell Toggle */}
+            <div className="flex items-center gap-4">
+              <ThemeToggle />
+              <div className="flex items-center">
+                <span className={mode === 'buy' ? 'font-bold text-primary' : ''}>Buy</span>
+                <Switch
+                  checked={mode === 'sell'}
+                  onCheckedChange={(checked) => debouncedSetMode(checked ? 'sell' : 'buy')}
+                  className="mx-2"
                 />
-                {isSearching && (
-                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                    <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
-                  </div>
-                )}
+                <span className={mode === 'sell' ? 'font-bold text-primary' : ''}>Sell</span>
               </div>
-              <select
-                value={selectedAssetType}
-                onChange={(e) => {
-                  setSelectedAssetType(e.target.value);
-                  setPageIndex(0);
-                }}
-                className="h-9 px-3 py-1 bg-background border border-input rounded-md"
-              >
-                <option value="">All Assets</option>
-                <option value="S&P500">S&P 500</option>
-                <option value="Top 50 Crypto">Top 50 Crypto</option>
-                <option value="Bursa Top 30 Blue Chips">Bursa Top 30 Blue Chips</option>
-                <option value="GOLD">Gold</option>
-              </select>
-              <SettingsDialog
-                selectedTimeframes={selectedTimeframes}
-                macdDays={macdDays}
-                priceChartDays={priceChartDays}
-                enabledSignals={enabledSignals}
-                signalPersistenceDays={signalPersistenceDays}
-                onTimeframesChange={handleTimeframesChange}
-                onMacdDaysChange={handleMacdDaysChange}
-                onPriceChartDaysChange={handlePriceChartDaysChange}
-                onSignalConfigChange={handleSignalConfigChange}
-                onSignalPersistenceDaysChange={handleSignalPersistenceDaysChange}
-              />
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={handleRefresh}
-                disabled={loading}
-                className="h-9 flex items-center gap-1"
-              >
-                <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-                <span className="hidden sm:inline">Refresh</span>
-              </Button>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleLogout}
+            <SettingsDialog
+              selectedTimeframes={selectedTimeframes}
+              macdDays={macdDays}
+              priceChartDays={priceChartDays}
+              enabledSignals={enabledSignals}
+              signalPersistenceDays={signalPersistenceDays}
+              onTimeframesChange={handleTimeframesChange}
+              onMacdDaysChange={handleMacdDaysChange}
+              onPriceChartDaysChange={handlePriceChartDaysChange}
+              onSignalConfigChange={handleSignalConfigChange}
+              onSignalPersistenceDaysChange={handleSignalPersistenceDaysChange}
+            />
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleRefresh}
+              disabled={loading}
               className="h-9 flex items-center gap-1"
             >
-              Logout
+              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+              <span className="hidden sm:inline">Refresh</span>
             </Button>
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleLogout}
+            className="h-9 flex items-center gap-1"
+          >
+            Logout
+          </Button>
         </div>
 
         <div className="flex items-center justify-between mt-4">
@@ -1000,5 +1045,5 @@ export const StockTable: React.FC = () => {
   );
 };
 
-export default StockTable;
+export default memo(StockTableComponent);
 
