@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils';
 import { debounce } from 'lodash';
 import mappingDirectory from '../lib/mapping_directory.json';
 import { signOut } from '@/lib/supabaseAuth';
+import { useMode } from '@/context/ModeContext';
 import { useNavigate } from 'react-router-dom';
 import { useSearchParams } from 'react-router-dom';
 import { useSettings } from '@/context/SettingsContext';
@@ -318,7 +319,7 @@ const createColumns = (
   },
 ];
 
-const StockTableComponent: React.FC = () => {
+export const StockTableComponent: React.FC = () => {
   const { 
     selectedTimeframes, 
     macdDays, 
@@ -362,16 +363,8 @@ const StockTableComponent: React.FC = () => {
   const [lastCacheTime, setLastCacheTime] = useState<number | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [cache, setCache] = useState<Cache>({});
-  const [mode, setMode] = useState<'buy' | 'sell'>('buy');
+  const { mode, setMode } = useMode();
   
-  // Debounced mode change to prevent excessive API calls
-  const debouncedSetMode = useCallback(
-    debounce((newMode: 'buy' | 'sell') => {
-      setMode(newMode);
-    }, 300),
-    []
-  );
-
   // Get sorted timeframes for display
   const sortedSelectedTimeframes = useMemo(() => 
     getSortedTimeframes(selectedTimeframes), 
@@ -889,7 +882,7 @@ const StockTableComponent: React.FC = () => {
                 <span className={mode === 'buy' ? 'font-bold text-primary' : ''}>Buy</span>
                 <Switch
                   checked={mode === 'sell'}
-                  onCheckedChange={(checked) => debouncedSetMode(checked ? 'sell' : 'buy')}
+                  onCheckedChange={(checked) => setMode(checked ? 'sell' : 'buy')}
                   className="mx-2"
                 />
                 <span className={mode === 'sell' ? 'font-bold text-primary' : ''}>Sell</span>

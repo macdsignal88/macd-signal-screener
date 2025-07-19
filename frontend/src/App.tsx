@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 
 import AuthCallback from '@/pages/AuthCallback';
 import LoginPage from '@/pages/LoginPage';
+import { ModeProvider } from './context/ModeContext';
 import { SettingsProvider } from "./context/SettingsContext";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import StockDetail from '@/components/StockDetail';
@@ -96,11 +97,13 @@ const App = () => {
         <QueryClientProvider client={queryClient}>
           <SettingsProvider>
             <WatchlistProvider>
-              <TooltipProvider>
-                <Toaster />
-                <Sonner />
-                <AppContent />
-              </TooltipProvider>
+              <ModeProvider>
+                <TooltipProvider>
+                  <Toaster />
+                  <Sonner />
+                  <AppContent />
+                </TooltipProvider>
+              </ModeProvider>
             </WatchlistProvider>
           </SettingsProvider>
         </QueryClientProvider>

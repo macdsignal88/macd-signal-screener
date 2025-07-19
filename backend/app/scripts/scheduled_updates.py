@@ -3,6 +3,7 @@ import json
 import logging
 import sys
 from datetime import datetime, timedelta
+import os
 
 import pytz
 from app.services.batch_signal_processor import batch_signal_processor
@@ -18,8 +19,10 @@ logger = logging.getLogger(__name__)
 # Timezone for scheduling
 TIMEZONE = pytz.timezone('UTC')
 
-# Load symbols and asset types
-with open("symbols_yf.json", "r") as f:
+script_dir = os.path.dirname(os.path.abspath(__file__))
+file_path = os.path.join(script_dir, "..", "..", "symbols_yf.json")
+
+with open(file_path, "r") as f:
     data = json.load(f)
 
 symbols = []
