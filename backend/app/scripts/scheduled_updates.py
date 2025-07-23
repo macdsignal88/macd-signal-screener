@@ -2,23 +2,22 @@ import asyncio
 import json
 import logging
 import sys
-from datetime import datetime, timedelta
 import os
-
+from datetime import datetime, timedelta
 import pytz
-from app.services.batch_signal_processor import batch_signal_processor
+import aiohttp
 
-# Set up logging to stdout
+from app.services.batch_signal_processor import process_symbol
+
+# Setup logger
 logging.basicConfig(
     level=logging.INFO,
-    format='[%(asctime)s] [%(levelname)s] %(message)s',
+    format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
 
-# Timezone for scheduling
-TIMEZONE = pytz.timezone('UTC')
-
+# Read symbols from JSON
 script_dir = os.path.dirname(os.path.abspath(__file__))
 file_path = os.path.join(script_dir, "..", "..", "symbols_yf.json")
 
@@ -32,7 +31,7 @@ for category, symbol_list in data.items():
         symbols.append(symbol)
         asset_types[symbol] = category
 
-# Schedule configurations
+# Update intervals
 UPDATE_SCHEDULES = {
     '1d': {'interval': '1d', 'period': '6mo', 'schedule': 'daily'},
     '2d': {'interval': '2d', 'period': '6mo', 'schedule': 'daily'},
@@ -49,11 +48,9 @@ UPDATE_SCHEDULES = {
 }
 
 def is_last_day_of_month(today):
-    """Return True if today is the last day of the month."""
     return (today + timedelta(days=1)).month != today.month
 
 def should_run_today(config, today):
-    """Check if the config should run today based on schedule type."""
     schedule_type = config['schedule']
     if schedule_type == 'daily':
         return True
@@ -63,32 +60,61 @@ def should_run_today(config, today):
         return is_last_day_of_month(today)
     return False
 
+sem = asyncio.Semaphore(10)  # Throttle concurrency to 10
+
+async def fetch_with_retry(symbol, interval_config, session):
+    retries = 3
+    delay = 1
+
+    for attempt in range(retries):
+        async with sem:
+            try:
+                result = await process_symbol(
+                    symbol=symbol,
+                    period=interval_config['period'],
+                    interval=interval_config['interval'],
+                    asset_type=asset_types.get(symbol),
+                    session=session
+                )
+                return symbol, result
+            except Exception as e:
+                logger.warning(f"[{interval_config['interval']}] Retry {attempt + 1} failed for {symbol}: {e}")
+                await asyncio.sleep(delay)
+                delay *= 2
+
+    logger.error(f"[{interval_config['interval']}] All retries failed for {symbol}")
+    return symbol, []
+
 async def process_interval(interval_config):
-    """Run signal processing for the given interval."""
     logger.info(f"Processing interval: {interval_config['interval']}")
-    try:
-        signals = await batch_signal_processor.process_symbols(
-            symbols=symbols,
-            period=interval_config['period'],
-            interval=interval_config['interval'],
-            asset_types=asset_types
-        )
+    failed_symbols = {}
 
-        signals_by_symbol = {}
-        for signal in signals:
-            symbol = signal['symbol']
-            signals_by_symbol.setdefault(symbol, []).append(signal)
+    async with aiohttp.ClientSession() as session:
+        tasks = [fetch_with_retry(symbol, interval_config, session) for symbol in symbols]
+        results = await asyncio.gather(*tasks)
 
-        for symbol in symbols:
-            signal_count = len(signals_by_symbol.get(symbol, []))
-            logger.info(f"[{interval_config['interval']}] {symbol}: {signal_count} signals")
+    signals_by_symbol = {}
+    for symbol, signals in results:
+        if signals:
+            signals_by_symbol[symbol] = signals
+        else:
+            failed_symbols[symbol] = True
 
-    except Exception as e:
-        logger.error(f"Error processing interval {interval_config['interval']}: {e}")
+    for symbol in symbols:
+        count = len(signals_by_symbol.get(symbol, []))
+        logger.info(f"[{interval_config['interval']}] {symbol}: {count} signals")
+
+    # Write failed symbols to log file
+    if failed_symbols:
+        fail_path = os.path.join(script_dir, f"failed_{interval_config['interval']}.log")
+        with open(fail_path, "w") as f:
+            for sym in failed_symbols:
+                f.write(sym + "\n")
+        logger.warning(f"{len(failed_symbols)} symbols failed. Logged to {fail_path}")
 
 def main():
-    current_time = datetime.now(TIMEZONE)
-    logger.info("Starting scheduled signal processing")
+    current_time = datetime.now(pytz.timezone("UTC"))
+    logger.info("Scheduled update started")
 
     for config in UPDATE_SCHEDULES.values():
         if should_run_today(config, current_time):
@@ -99,3 +125,4 @@ if __name__ == "__main__":
         main()
     except Exception as e:
         logger.exception(f"Unhandled exception in script: {e}")
+        sys.exit(1)
