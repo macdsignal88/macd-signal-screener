@@ -133,7 +133,7 @@ class BatchMacdService:
             return macd < signal and macd > 0 and signal > 0
         else:
             # Bullish crossover above zero (macd > signal and both > 0)
-            return macd > signal and macd > 0 and signal > 0
+            return macd > signal and macd < 0 and signal < 0
 
     def _check_signal_2(self, data, i, macd, triggered, step, side):
         last_10 = data.iloc[i - 10:i]['macd_line']

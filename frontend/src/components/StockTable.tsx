@@ -10,6 +10,14 @@ import {
   useReactTable,
 } from '@tanstack/react-table';
 import React, { Profiler, memo, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 import { Signal, SignalDisplayConfig, SignalFlags, SingleStockWithMacdHistory, SortConfig, SortDirection, SortField, StockWithMacdHistory, TimeFrame } from '@/lib/types';
 import { fetchStocksPageFromSupabase, fetchWatchlistStocksFromSupabase, getLatestCreatedAt } from '@/lib/supabaseService';
 import { formatPercent, formatPrice } from '@/lib/macdService';
@@ -343,7 +351,7 @@ export const StockTableComponent: React.FC = () => {
   });
   const [totalRows, setTotalRows] = useState(0);
   const [uniqueSymbolCount, setUniqueSymbolCount] = useState(0);
-  const [selectedAssetType, setSelectedAssetType] = useState<string>('');
+  const [selectedAssetGroup, setSelectedAssetGroup] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [sorting, setSorting] = useState<SortingState>([]);
   const [sortConfig, setSortConfig] = useState<SortConfig>(() => {
@@ -458,7 +466,7 @@ export const StockTableComponent: React.FC = () => {
       const cacheKey = JSON.stringify({
         page,
         size,
-        selectedAssetType: selectedAssetType,
+        selectedAssetGroup: selectedAssetGroup,
         searchQuery: searchQuery,
         sorting: sorting,
         showWatchlistOnly: showWatchlistOnly,
@@ -490,7 +498,7 @@ export const StockTableComponent: React.FC = () => {
       // If no cached data, fetch from Supabase
       console.log('Fetching data with mode:', mode);
       const { data, total, uniqueSymbolCount } = showWatchlistOnly
-        ? await fetchWatchlistStocksFromSupabase(watchlist, selectedAssetType, pageIndex, pageSize, sorting.length > 0 ? {
+        ? await fetchWatchlistStocksFromSupabase(watchlist, selectedAssetGroup === 'all' ? undefined : selectedAssetGroup, pageIndex, pageSize, sorting.length > 0 ? {
             field: sorting[0].id as SortField,
             direction: sorting[0].desc ? 'desc' : 'asc'
           } : sortConfig, mode)
@@ -506,7 +514,7 @@ export const StockTableComponent: React.FC = () => {
             priceChartDays,
             enabledSignals,
             signalPersistenceDays,
-            selectedAssetType,
+            selectedAssetGroup === 'all' ? undefined : selectedAssetGroup,
             searchQuery,
             mode
           );
@@ -532,13 +540,16 @@ export const StockTableComponent: React.FC = () => {
       const endTime = performance.now();
       console.log(`[Performance] loadStocks took ${(endTime - startTime).toFixed(2)}ms`);
     }
-  }, [pageIndex, pageSize, selectedAssetType, searchQuery, sorting, showWatchlistOnly, watchlist, selectedTimeframes, macdDays, priceChartDays, enabledSignals, signalPersistenceDays, sortConfig, mode]);
+  }, [pageIndex, pageSize, selectedAssetGroup, searchQuery, sorting, showWatchlistOnly, watchlist, selectedTimeframes, macdDays, priceChartDays, enabledSignals, signalPersistenceDays, sortConfig, mode]);
 
   // Memoize filtered stocks
   const filteredStocks = useMemo(() => {
     if (!showWatchlistOnly) return stocks;
     return stocks.filter(stock => watchlist.includes(stock.symbol));
   }, [stocks, showWatchlistOnly, watchlist]);
+
+  // Asset group options from mappingDirectory
+  const assetGroupOptions = useMemo(() => Object.keys(mappingDirectory), []);
 
   // Update when watchlist filter changes
   useEffect(() => {
@@ -550,7 +561,7 @@ export const StockTableComponent: React.FC = () => {
   // Update when other filters change
   useEffect(() => {
     loadStocks();
-  }, [loadStocks, selectedAssetType, searchQuery, sorting, selectedTimeframes, macdDays, priceChartDays, enabledSignals, signalPersistenceDays]);
+  }, [loadStocks, selectedAssetGroup, searchQuery, sorting, selectedTimeframes, macdDays, priceChartDays, enabledSignals, signalPersistenceDays]);
 
   // Calculate total pages
   const totalPages = useMemo(() => {
@@ -859,182 +870,206 @@ export const StockTableComponent: React.FC = () => {
     </tr>
   ), []);
 
+  // Ensure we return valid JSX
   return (
-    <Profiler id="StockTable" onRender={onRenderCallback}>
-      <div className="w-full p-2 sm:p-4">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-          <h1 className="text-2xl font-bold sm:text-3xl">MACD Signal Screener</h1>
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              {lastUpdated && (
-                <span>Last updated: {lastUpdated}</span>
-              )}
-              {isUsingCache && lastCacheTime && (
-                <span className="text-green-500">
-                  (Using cached data from {new Date(lastCacheTime).toLocaleTimeString()})
-                </span>
-              )}
-            </div>
-            {/* Group ThemeToggle and Buy/Sell Toggle */}
-            <div className="flex items-center gap-4">
-              <ThemeToggle />
-              <div className="flex items-center">
-                <span className={mode === 'buy' ? 'font-bold text-primary' : ''}>Buy</span>
-                <Switch
-                  checked={mode === 'sell'}
-                  onCheckedChange={(checked) => setMode(checked ? 'sell' : 'buy')}
-                  className="mx-2"
-                />
-                <span className={mode === 'sell' ? 'font-bold text-primary' : ''}>Sell</span>
+    <div className="w-full">
+      <Profiler id="StockTable" onRender={onRenderCallback}>
+        <div className="w-full p-2 sm:p-4">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+            <h1 className="text-2xl font-bold sm:text-3xl">MACD Signal Screener</h1>
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                {lastUpdated && (
+                  <span>Last updated: {lastUpdated}</span>
+                )}
+                {isUsingCache && lastCacheTime && (
+                  <span className="text-green-500">
+                    (Using cached data from {new Date(lastCacheTime).toLocaleTimeString()})
+                  </span>
+                )}
               </div>
+              {/* Asset group dropdown and search bar */}
+              <div className="flex items-center gap-2">
+                <Select value={selectedAssetGroup} onValueChange={setSelectedAssetGroup}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Asset Group" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Asset Groups</SelectItem>
+                    {assetGroupOptions.map(group => (
+                      <SelectItem key={group} value={group}>{group}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="text"
+                  placeholder="Search stocks..."
+                  value={searchQuery}
+                  onChange={handleSearchChange}
+                  className="w-[180px]"
+                />
+              </div>
+              {/* Group ThemeToggle and Buy/Sell Toggle */}
+              <div className="flex items-center gap-4">
+                <ThemeToggle />
+                <div className="flex items-center">
+                  <span className={mode === 'buy' ? 'font-bold text-primary' : ''}>Buy</span>
+                  <Switch
+                    checked={mode === 'sell'}
+                    onCheckedChange={(checked) => setMode(checked ? 'sell' : 'buy')}
+                    className="mx-2"
+                  />
+                  <span className={mode === 'sell' ? 'font-bold text-primary' : ''}>Sell</span>
+                </div>
+              </div>
+              <SettingsDialog
+                selectedTimeframes={selectedTimeframes}
+                macdDays={macdDays}
+                priceChartDays={priceChartDays}
+                enabledSignals={enabledSignals}
+                signalPersistenceDays={signalPersistenceDays}
+                onTimeframesChange={handleTimeframesChange}
+                onMacdDaysChange={handleMacdDaysChange}
+                onPriceChartDaysChange={handlePriceChartDaysChange}
+                onSignalConfigChange={handleSignalConfigChange}
+                onSignalPersistenceDaysChange={handleSignalPersistenceDaysChange}
+              />
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleRefresh}
+                disabled={loading}
+                className="h-9 flex items-center gap-1"
+              >
+                <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+                <span className="hidden sm:inline">Refresh</span>
+              </Button>
             </div>
-            <SettingsDialog
-              selectedTimeframes={selectedTimeframes}
-              macdDays={macdDays}
-              priceChartDays={priceChartDays}
-              enabledSignals={enabledSignals}
-              signalPersistenceDays={signalPersistenceDays}
-              onTimeframesChange={handleTimeframesChange}
-              onMacdDaysChange={handleMacdDaysChange}
-              onPriceChartDaysChange={handlePriceChartDaysChange}
-              onSignalConfigChange={handleSignalConfigChange}
-              onSignalPersistenceDaysChange={handleSignalPersistenceDaysChange}
-            />
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={handleRefresh}
-              disabled={loading}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleLogout}
               className="h-9 flex items-center gap-1"
             >
-              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-              <span className="hidden sm:inline">Refresh</span>
+              Logout
             </Button>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleLogout}
-            className="h-9 flex items-center gap-1"
-          >
-            Logout
-          </Button>
-        </div>
 
-        <div className="flex items-center justify-between mt-4">
-          <div className="flex items-center space-x-2">
-            <Switch
-              id="watchlist-filter"
-              checked={showWatchlistOnly}
-              onCheckedChange={() => {
-                setShowWatchlistOnly(!showWatchlistOnly);
-                setPageIndex(0);
-              }}
-            />
-            <Label htmlFor="watchlist-filter" className="cursor-pointer">Show watchlist only</Label>
+          <div className="flex items-center justify-between mt-4">
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="watchlist-filter"
+                checked={showWatchlistOnly}
+                onCheckedChange={() => {
+                  setShowWatchlistOnly(!showWatchlistOnly);
+                  setPageIndex(0);
+                }}
+              />
+              <Label htmlFor="watchlist-filter" className="cursor-pointer">Show watchlist only</Label>
+            </div>
+            
+            {showWatchlistOnly && watchlist.length === 0 && (
+              <div className="text-sm text-muted-foreground">
+                Your watchlist is empty. Add stocks by clicking the star icon.
+              </div>
+            )}
           </div>
-          
-          {showWatchlistOnly && watchlist.length === 0 && (
-            <div className="text-sm text-muted-foreground">
-              Your watchlist is empty. Add stocks by clicking the star icon.
-            </div>
-          )}
-        </div>
 
-        <div className="glass-card rounded-lg overflow-hidden mt-4">
-          {loading ? (
-            <div className="p-8 flex flex-col items-center justify-center">
-              <Progress value={30} className="w-64 animate-pulse" />
-              <p className="mt-4 text-sm text-muted-foreground">Loading stock data...</p>
-            </div>
-          ) : (
-            <>
-              <div className="overflow-x-auto">
-                <table className="w-full divide-y divide-border">
-                  <thead className="bg-muted/30">
-                    {table.getHeaderGroups().map(headerGroup => (
-                      <tr key={headerGroup.id}>
-                        {headerGroup.headers.map(header => (
-                          <th
-                            key={header.id}
-                            className="px-2 sm:px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
-                            style={{ width: header.getSize() }}
-                          >
-                            {header.isPlaceholder
-                              ? null
-                              : flexRender(
-                                  header.column.columnDef.header,
-                                  header.getContext()
-                                )}
-                          </th>
-                        ))}
-                      </tr>
-                    ))}
-                  </thead>
-                  <tbody className="bg-background divide-y divide-border">
-                    {table.getRowModel().rows.length === 0 ? (
-                      <tr>
-                        <td colSpan={columns.length} className="px-4 py-8 text-center text-muted-foreground">
-                          {searchQuery || showWatchlistOnly 
-                            ? 'No matching stocks found' 
-                            : 'No stocks available'}
-                        </td>
-                      </tr>
-                    ) : (
-                      table.getRowModel().rows.map(renderRow)
-                    )}
-                  </tbody>
-                </table>
+          <div className="glass-card rounded-lg overflow-hidden mt-4">
+            {loading ? (
+              <div className="p-8 flex flex-col items-center justify-center">
+                <Progress value={30} className="w-64 animate-pulse" />
+                <p className="mt-4 text-sm text-muted-foreground">Loading stock data...</p>
               </div>
-              <div className="flex flex-wrap justify-between items-center p-2 sm:p-4 gap-2">
-                <div>
-                  Page {pageIndex + 1} of {totalPages}
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full divide-y divide-border">
+                    <thead className="bg-muted/30">
+                      {table.getHeaderGroups().map(headerGroup => (
+                        <tr key={headerGroup.id}>
+                          {headerGroup.headers.map(header => (
+                            <th
+                              key={header.id}
+                              className="px-2 sm:px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
+                              style={{ width: header.getSize() }}
+                            >
+                              {header.isPlaceholder
+                                ? null
+                                : flexRender(
+                                    header.column.columnDef.header,
+                                    header.getContext()
+                                  )}
+                            </th>
+                          ))}
+                        </tr>
+                      ))}
+                    </thead>
+                    <tbody className="bg-background divide-y divide-border">
+                      {table.getRowModel().rows.length === 0 ? (
+                        <tr>
+                          <td colSpan={columns.length} className="px-4 py-8 text-center text-muted-foreground">
+                            {searchQuery || showWatchlistOnly 
+                              ? 'No matching stocks found' 
+                              : 'No stocks available'}
+                          </td>
+                        </tr>
+                      ) : (
+                        table.getRowModel().rows.map(renderRow)
+                      )}
+                    </tbody>
+                  </table>
                 </div>
-                <div className="flex flex-wrap gap-2 items-center">
-                  <Button 
-                    onClick={() => setPageIndex(0)} 
-                    disabled={pageIndex === 0}
-                  >
-                    First
-                  </Button>
-                  <Button 
-                    onClick={() => setPageIndex(pageIndex - 1)} 
-                    disabled={pageIndex === 0}
-                  >
-                    Previous
-                  </Button>
-                  <Button 
-                    onClick={() => setPageIndex(pageIndex + 1)} 
-                    disabled={pageIndex >= totalPages - 1}
-                  >
-                    Next
-                  </Button>
-                  <Button 
-                    onClick={() => setPageIndex(totalPages - 1)} 
-                    disabled={pageIndex >= totalPages - 1}
-                  >
-                    Last
-                  </Button>
-                  <span className="ml-4">Rows per page:</span>
-                  <select
-                    value={pageSize}
-                    onChange={e => {
-                      setPageSize(Number(e.target.value));
-                      setPageIndex(0);
-                    }}
-                    className="border rounded px-2 py-1"
-                  >
-                    {[10, 20, 50, 100].map(size => (
-                      <option key={size} value={size}>{size}</option>
-                    ))}
-                  </select>
+                <div className="flex flex-wrap justify-between items-center p-2 sm:p-4 gap-2">
+                  <div>
+                    Page {pageIndex + 1} of {totalPages}
+                  </div>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <Button 
+                      onClick={() => setPageIndex(0)} 
+                      disabled={pageIndex === 0}
+                    >
+                      First
+                    </Button>
+                    <Button 
+                      onClick={() => setPageIndex(pageIndex - 1)} 
+                      disabled={pageIndex === 0}
+                    >
+                      Previous
+                    </Button>
+                    <Button 
+                      onClick={() => setPageIndex(pageIndex + 1)} 
+                      disabled={pageIndex >= totalPages - 1}
+                    >
+                      Next
+                    </Button>
+                    <Button 
+                      onClick={() => setPageIndex(totalPages - 1)} 
+                      disabled={pageIndex >= totalPages - 1}
+                    >
+                      Last
+                    </Button>
+                    <span className="ml-4">Rows per page:</span>
+                    <select
+                      value={pageSize}
+                      onChange={e => {
+                        setPageSize(Number(e.target.value));
+                        setPageIndex(0);
+                      }}
+                      className="border rounded px-2 py-1"
+                    >
+                      {[10, 20, 50, 100].map(size => (
+                        <option key={size} value={size}>{size}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-              </div>
-            </>
-          )}
+              </>
+            )}
+          </div>
         </div>
-      </div>
-    </Profiler>
+      </Profiler>
+    </div>
   );
 };
 
