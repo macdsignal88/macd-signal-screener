@@ -17,6 +17,16 @@ import { useToast } from '@/components/ui/use-toast';
 
 const TIMEFRAMES: TimeFrame[] = ['1d', '2d', '3d', '5d', '1wk', '2wk', '3wk', '1mo', '2mo', '3mo', '4mo', '5mo'];
 
+// Add sorting function for timeframes
+const getSortedTimeframes = (timeframes: TimeFrame[]): TimeFrame[] => {
+  const timeframeOrder: { [key: string]: number } = {
+    '1d': 1, '2d': 2, '3d': 3, '5d': 4,
+    '1wk': 5, '2wk': 6, '3wk': 7,
+    '1mo': 8, '2mo': 9, '3mo': 10, '4mo': 11, '5mo': 12
+  };
+  return [...timeframes].sort((a, b) => timeframeOrder[a] - timeframeOrder[b]);
+};
+
 // Add TradingView widget type
 declare global {
   interface Window {
@@ -247,7 +257,7 @@ const StockDetail: React.FC = () => {
               <div className="mb-6">
                 <h3 className="text-xl font-semibold mb-4">MACD Signals by Timeframe</h3>
                 <div className="flex flex-wrap gap-2 mb-6">
-                  {selectedTimeframes
+                  {getSortedTimeframes(selectedTimeframes)
                     .filter(timeFrame => stock.signals[timeFrame])
                     .map(timeFrame => (
                       <Button

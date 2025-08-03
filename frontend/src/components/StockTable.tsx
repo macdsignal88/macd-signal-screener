@@ -352,7 +352,6 @@ export const StockTableComponent: React.FC = () => {
   const [totalRows, setTotalRows] = useState(0);
   const [uniqueSymbolCount, setUniqueSymbolCount] = useState(0);
   const [selectedAssetGroup, setSelectedAssetGroup] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState('');
   const [sorting, setSorting] = useState<SortingState>([]);
   const [sortConfig, setSortConfig] = useState<SortConfig>(() => {
     const sortField = searchParams.get('sortField');
@@ -449,16 +448,43 @@ export const StockTableComponent: React.FC = () => {
     }
   };
 
-  // Update search handler to trigger search immediately
+  // Update search handler to only update input value, not trigger search
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const searchValue = e.target.value;
-    setSearchQuery(searchValue);
-    setPageIndex(0); // Reset to first page
-    loadStocks(); // This will now use the searchQuery in the API call
+    // No need to track search query in state - just let the input handle its own value
   };
 
-  // Update loadStocks to handle loading state internally
-  const loadStocks = useCallback(async (page = pageIndex, size = pageSize) => {
+  // Handle search submission on Enter key press
+  const handleSearchSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      const searchValue = e.currentTarget.value;
+      console.log('Search submitted with Enter key:', searchValue);
+      setPageIndex(0); // Reset to first page
+      // Pass search value directly to loadStocks
+      loadStocksWithSearch(searchValue);
+    }
+  };
+
+  // Handle search button click
+  const handleSearchButtonClick = () => {
+    // Get the current value from the input element
+    const searchInput = document.querySelector('input[placeholder*="Search stocks"]') as HTMLInputElement;
+    const searchValue = searchInput?.value || '';
+    console.log('Search submitted with button click:', searchValue);
+    setPageIndex(0); // Reset to first page
+    loadStocksWithSearch(searchValue);
+  };
+
+  // Clear search when asset group changes to avoid confusion
+  useEffect(() => {
+    // Clear search input when asset group changes
+    const searchInput = document.querySelector('input[placeholder*="Search stocks"]') as HTMLInputElement;
+    if (searchInput) {
+      searchInput.value = '';
+    }
+  }, [selectedAssetGroup]);
+
+  // Load stocks with search query
+  const loadStocksWithSearch = useCallback(async (searchQuery: string, page = pageIndex, size = pageSize) => {
     const startTime = performance.now();
     setLoading(true);
     try {
@@ -479,9 +505,18 @@ export const StockTableComponent: React.FC = () => {
         mode
       });
 
+      console.log('Loading stocks with params:', {
+        page,
+        size,
+        selectedAssetGroup,
+        searchQuery,
+        showWatchlistOnly,
+        mode
+      });
+
       // Try to get cached data first
       const cachedData = getCachedData(cacheKey);
-      if (cachedData) {
+      if (cachedData && cachedData.data.length > 0) {
         console.log('Using cached data for page:', page, 'with', cachedData.data.length, 'stocks');
         setStocks(cachedData.data);
         setTotalRows(cachedData.total);
@@ -490,18 +525,23 @@ export const StockTableComponent: React.FC = () => {
         return;
       }
 
-      console.log('No cached data found, fetching from database...');
+      // If cached data is empty or doesn't exist, fetch fresh data
+      if (cachedData && cachedData.data.length === 0) {
+        console.log('Cached data is empty, fetching fresh data from database...');
+      } else {
+        console.log('No cached data found, fetching from database...');
+      }
       console.log('Cache key:', cacheKey);
       console.log('Current cache state:', Object.keys(cache).length, 'entries');
       console.log('Global cache state:', Object.keys(stockCache).length, 'entries');
 
       // If no cached data, fetch from Supabase
-      console.log('Fetching data with mode:', mode);
+      console.log('Fetching data with mode:', mode, 'searchQuery:', searchQuery);
       const { data, total, uniqueSymbolCount } = showWatchlistOnly
         ? await fetchWatchlistStocksFromSupabase(watchlist, selectedAssetGroup === 'all' ? undefined : selectedAssetGroup, pageIndex, pageSize, sorting.length > 0 ? {
             field: sorting[0].id as SortField,
             direction: sorting[0].desc ? 'desc' : 'asc'
-          } : sortConfig, mode)
+          } : sortConfig, mode, searchQuery)
         : await fetchStocksPageFromSupabase(
             pageIndex,
             pageSize,
@@ -519,7 +559,7 @@ export const StockTableComponent: React.FC = () => {
             mode
           );
 
-      console.log('Fetched data:', { dataLength: data?.length, total, uniqueSymbolCount });
+      console.log('Fetched data:', { dataLength: data?.length, total, uniqueSymbolCount, searchQuery });
 
       // Cache the fetched data
       console.log('Caching data for page:', page);
@@ -540,7 +580,13 @@ export const StockTableComponent: React.FC = () => {
       const endTime = performance.now();
       console.log(`[Performance] loadStocks took ${(endTime - startTime).toFixed(2)}ms`);
     }
-  }, [pageIndex, pageSize, selectedAssetGroup, searchQuery, sorting, showWatchlistOnly, watchlist, selectedTimeframes, macdDays, priceChartDays, enabledSignals, signalPersistenceDays, sortConfig, mode]);
+  }, [pageIndex, pageSize, selectedAssetGroup, sorting, showWatchlistOnly, watchlist, selectedTimeframes, macdDays, priceChartDays, enabledSignals, signalPersistenceDays, sortConfig, mode]);
+
+  // Update loadStocks to handle loading state internally (for non-search operations)
+  const loadStocks = useCallback(async (page = pageIndex, size = pageSize) => {
+    // Call loadStocksWithSearch with empty search query for regular operations
+    await loadStocksWithSearch('', page, size);
+  }, [loadStocksWithSearch, pageIndex, pageSize]);
 
   // Memoize filtered stocks
   const filteredStocks = useMemo(() => {
@@ -561,7 +607,7 @@ export const StockTableComponent: React.FC = () => {
   // Update when other filters change
   useEffect(() => {
     loadStocks();
-  }, [loadStocks, selectedAssetGroup, searchQuery, sorting, selectedTimeframes, macdDays, priceChartDays, enabledSignals, signalPersistenceDays]);
+  }, [loadStocks, selectedAssetGroup, sorting, selectedTimeframes, macdDays, priceChartDays, enabledSignals, signalPersistenceDays]);
 
   // Calculate total pages
   const totalPages = useMemo(() => {
@@ -901,13 +947,23 @@ export const StockTableComponent: React.FC = () => {
                     ))}
                   </SelectContent>
                 </Select>
-                <Input
-                  type="text"
-                  placeholder="Search stocks..."
-                  value={searchQuery}
-                  onChange={handleSearchChange}
-                  className="w-[180px]"
-                />
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="text"
+                    placeholder="Search stocks... (Press Enter)"
+                    onChange={handleSearchChange}
+                    onKeyPress={handleSearchSubmit}
+                    className="w-[200px]"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSearchButtonClick}
+                    className="h-9 px-3"
+                  >
+                    <Search className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               {/* Group ThemeToggle and Buy/Sell Toggle */}
               <div className="flex items-center gap-4">
@@ -1009,7 +1065,7 @@ export const StockTableComponent: React.FC = () => {
                       {table.getRowModel().rows.length === 0 ? (
                         <tr>
                           <td colSpan={columns.length} className="px-4 py-8 text-center text-muted-foreground">
-                            {searchQuery || showWatchlistOnly 
+                            {showWatchlistOnly 
                               ? 'No matching stocks found' 
                               : 'No stocks available'}
                           </td>
