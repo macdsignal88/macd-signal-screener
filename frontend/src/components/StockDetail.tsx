@@ -7,11 +7,14 @@ import { formatPercent, formatPrice } from '@/lib/macdService';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import SignalHistoryTable from '@/components/SignalHistoryTable';
 import SignalIndicator from '@/components/SignalIndicator';
+import { Switch } from '@/components/ui/switch';
 import { getStockTriggeredSignals } from '@/lib/supabaseService';
 import { getTimeFrames } from '@/lib/stockService';
 import mappingDirectoryTradV from '@/lib/mapping_directoryTradV.json';
+import { useMode } from '@/context/ModeContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -124,6 +127,7 @@ const StockDetail: React.FC = () => {
   const { selectedTimeframes } = useSettings();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { mode, setMode } = useMode();
 
 
   useEffect(() => {
@@ -132,7 +136,7 @@ const StockDetail: React.FC = () => {
       
       setLoading(true);
       try {
-        const stockData = await getStockTriggeredSignals(symbol);
+        const stockData = await getStockTriggeredSignals(symbol, mode);
         if (stockData) {
           setStock(stockData);
         } else {
@@ -156,7 +160,7 @@ const StockDetail: React.FC = () => {
     };
 
     loadStock();
-  }, [symbol, navigate, toast]);
+  }, [symbol, navigate, toast, mode]);
 
   const handleBackClick = () => {
     // Get the current URL parameters
@@ -236,13 +240,28 @@ const StockDetail: React.FC = () => {
                 </span>
               </div>
             </div>
-            <Button 
-              className="flex items-center" 
-              onClick={openTradingView}
-            >
-              <span>Open in TradingView</span>
-              <ExternalLink className="ml-2 h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-4">
+              {/* Mode Toggle */}
+              <div className="flex items-center gap-2">
+                <span className={mode === 'buy' ? 'font-bold text-primary' : 'text-muted-foreground'}>Buy</span>
+                <Switch
+                  checked={mode === 'sell'}
+                  onCheckedChange={(checked) => {
+                    setMode(checked ? 'sell' : 'buy');
+                  }}
+                  className="mx-2"
+                />
+                <span className={mode === 'sell' ? 'font-bold text-primary' : 'text-muted-foreground'}>Sell</span>
+                <span className="text-xs text-muted-foreground ml-2">({mode.toUpperCase()} Mode)</span>
+              </div>
+              <Button 
+                className="flex items-center" 
+                onClick={openTradingView}
+              >
+                <span>Open in TradingView</span>
+                <ExternalLink className="ml-2 h-4 w-4" />
+              </Button>
+            </div>
           </div>
 
           <div className="mb-8">
@@ -255,7 +274,19 @@ const StockDetail: React.FC = () => {
             </TabsList>
             <TabsContent value="signals" className="pt-4">
               <div className="mb-6">
-                <h3 className="text-xl font-semibold mb-4">MACD Signals by Timeframe</h3>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-semibold">MACD Signals by Timeframe</h3>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Mode:</span>
+                    <span className={`text-sm font-medium px-2 py-1 rounded ${
+                      mode === 'buy' 
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
+                        : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                    }`}>
+                      {mode.toUpperCase()}
+                    </span>
+                  </div>
+                </div>
                 <div className="flex flex-wrap gap-2 mb-6">
                   {getSortedTimeframes(selectedTimeframes)
                     .filter(timeFrame => stock.signals[timeFrame])

@@ -30,8 +30,6 @@ const MacdMiniChart: React.FC<MacdMiniChartProps> = memo(({
   height = 60,
   days = 7
 }) => {
-  const startTime = performance.now();
-  
   const chartData = [...data].slice(-days); // Get last N days of data based on the days prop
   
   const allValues = chartData.flatMap(d => [d.macdLine, d.signalLine, d.histogram]);
@@ -41,9 +39,6 @@ const MacdMiniChart: React.FC<MacdMiniChartProps> = memo(({
     Math.min(minValue, 0) * 1.1,
     Math.max(maxValue, 0) * 1.1
   ];
-
-  const endTime = performance.now();
-  console.log(`[Performance] MacdMiniChart render took ${(endTime - startTime).toFixed(2)}ms for ${selectedTimeFrame}`);
 
   return (
     <div className="relative w-full h-full" style={{ width, height }}>

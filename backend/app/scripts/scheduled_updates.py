@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import pytz
 import aiohttp
 
-from app.services.batch_signal_processor import process_symbol
+from app.services.batch_signal_processor import batch_signal_processor
 
 # Setup logger
 logging.basicConfig(
@@ -69,7 +69,7 @@ async def fetch_with_retry(symbol, interval_config, session):
     for attempt in range(retries):
         async with sem:
             try:
-                result = await process_symbol(
+                result = await batch_signal_processor.process_symbol(
                     symbol=symbol,
                     period=interval_config['period'],
                     interval=interval_config['interval'],

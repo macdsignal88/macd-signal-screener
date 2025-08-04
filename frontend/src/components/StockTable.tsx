@@ -9,7 +9,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from '@tanstack/react-table';
-import React, { Profiler, memo, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Profiler, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Select,
   SelectContent,
@@ -352,6 +352,7 @@ export const StockTableComponent: React.FC = () => {
   const [totalRows, setTotalRows] = useState(0);
   const [uniqueSymbolCount, setUniqueSymbolCount] = useState(0);
   const [selectedAssetGroup, setSelectedAssetGroup] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [sorting, setSorting] = useState<SortingState>([]);
   const [sortConfig, setSortConfig] = useState<SortConfig>(() => {
     const sortField = searchParams.get('sortField');
@@ -372,9 +373,12 @@ export const StockTableComponent: React.FC = () => {
   const [cache, setCache] = useState<Cache>({});
   const { mode, setMode } = useMode();
   
+  // Use ref to track search input value
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  
   // Get sorted timeframes for display
-  const sortedSelectedTimeframes = useMemo(() => 
-    getSortedTimeframes(selectedTimeframes), 
+  const sortedSelectedTimeframes = useMemo(() =>
+    getSortedTimeframes(selectedTimeframes),
     [selectedTimeframes]
   );
 
@@ -448,52 +452,57 @@ export const StockTableComponent: React.FC = () => {
     }
   };
 
-  // Update search handler to only update input value, not trigger search
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // No need to track search query in state - just let the input handle its own value
-  };
-
   // Handle search submission on Enter key press
   const handleSearchSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       const searchValue = e.currentTarget.value;
       console.log('Search submitted with Enter key:', searchValue);
       setPageIndex(0); // Reset to first page
-      // Pass search value directly to loadStocks
+      setSearchQuery(searchValue); // Update state only when searching
       loadStocksWithSearch(searchValue);
     }
   };
 
   // Handle search button click
   const handleSearchButtonClick = () => {
-    // Get the current value from the input element
-    const searchInput = document.querySelector('input[placeholder*="Search stocks"]') as HTMLInputElement;
-    const searchValue = searchInput?.value || '';
+    const searchValue = searchInputRef.current?.value || '';
     console.log('Search submitted with button click:', searchValue);
     setPageIndex(0); // Reset to first page
+    setSearchQuery(searchValue); // Update state only when searching
     loadStocksWithSearch(searchValue);
+  };
+
+  // Load stocks with specific search query
+  const loadStocksWithSearch = (searchValue: string) => {
+    loadStocks(pageIndex, pageSize, searchValue);
   };
 
   // Clear search when asset group changes to avoid confusion
   useEffect(() => {
-    // Clear search input when asset group changes
-    const searchInput = document.querySelector('input[placeholder*="Search stocks"]') as HTMLInputElement;
-    if (searchInput) {
-      searchInput.value = '';
+    if (searchQuery) {
+      console.log('Clearing search query due to asset group change');
+      setSearchQuery('');
+      // Also clear the input field
+      if (searchInputRef.current) {
+        searchInputRef.current.value = '';
+      }
     }
   }, [selectedAssetGroup]);
 
-  // Load stocks with search query
-  const loadStocksWithSearch = useCallback(async (searchQuery: string, page = pageIndex, size = pageSize) => {
+  // Update loadStocks to handle loading state internally
+  const loadStocks = useCallback(async (page = pageIndex, size = pageSize, searchValue?: string) => {
     const startTime = performance.now();
     setLoading(true);
     try {
+      // Use provided searchValue or fall back to searchQuery state
+      const effectiveSearchQuery = searchValue !== undefined ? searchValue : searchQuery;
+      
       // Generate cache key based on current state
       const cacheKey = JSON.stringify({
         page,
         size,
         selectedAssetGroup: selectedAssetGroup,
-        searchQuery: searchQuery,
+        searchQuery: effectiveSearchQuery,
         sorting: sorting,
         showWatchlistOnly: showWatchlistOnly,
         ...(showWatchlistOnly ? { watchlist } : {}),
@@ -509,7 +518,7 @@ export const StockTableComponent: React.FC = () => {
         page,
         size,
         selectedAssetGroup,
-        searchQuery,
+        searchQuery: effectiveSearchQuery,
         showWatchlistOnly,
         mode
       });
@@ -536,12 +545,12 @@ export const StockTableComponent: React.FC = () => {
       console.log('Global cache state:', Object.keys(stockCache).length, 'entries');
 
       // If no cached data, fetch from Supabase
-      console.log('Fetching data with mode:', mode, 'searchQuery:', searchQuery);
+      console.log('Fetching data with mode:', mode, 'searchQuery:', effectiveSearchQuery);
       const { data, total, uniqueSymbolCount } = showWatchlistOnly
         ? await fetchWatchlistStocksFromSupabase(watchlist, selectedAssetGroup === 'all' ? undefined : selectedAssetGroup, pageIndex, pageSize, sorting.length > 0 ? {
             field: sorting[0].id as SortField,
             direction: sorting[0].desc ? 'desc' : 'asc'
-          } : sortConfig, mode, searchQuery)
+          } : sortConfig, mode, effectiveSearchQuery)
         : await fetchStocksPageFromSupabase(
             pageIndex,
             pageSize,
@@ -555,7 +564,7 @@ export const StockTableComponent: React.FC = () => {
             enabledSignals,
             signalPersistenceDays,
             selectedAssetGroup === 'all' ? undefined : selectedAssetGroup,
-            searchQuery,
+            effectiveSearchQuery,
             mode
           );
 
@@ -580,13 +589,7 @@ export const StockTableComponent: React.FC = () => {
       const endTime = performance.now();
       console.log(`[Performance] loadStocks took ${(endTime - startTime).toFixed(2)}ms`);
     }
-  }, [pageIndex, pageSize, selectedAssetGroup, sorting, showWatchlistOnly, watchlist, selectedTimeframes, macdDays, priceChartDays, enabledSignals, signalPersistenceDays, sortConfig, mode]);
-
-  // Update loadStocks to handle loading state internally (for non-search operations)
-  const loadStocks = useCallback(async (page = pageIndex, size = pageSize) => {
-    // Call loadStocksWithSearch with empty search query for regular operations
-    await loadStocksWithSearch('', page, size);
-  }, [loadStocksWithSearch, pageIndex, pageSize]);
+  }, [pageIndex, pageSize, selectedAssetGroup, searchQuery, sorting, showWatchlistOnly, watchlist, selectedTimeframes, macdDays, priceChartDays, enabledSignals, signalPersistenceDays, sortConfig, mode]);
 
   // Memoize filtered stocks
   const filteredStocks = useMemo(() => {
@@ -951,9 +954,9 @@ export const StockTableComponent: React.FC = () => {
                   <Input
                     type="text"
                     placeholder="Search stocks... (Press Enter)"
-                    onChange={handleSearchChange}
                     onKeyPress={handleSearchSubmit}
                     className="w-[200px]"
+                    ref={searchInputRef}
                   />
                   <Button
                     variant="outline"
@@ -1065,7 +1068,7 @@ export const StockTableComponent: React.FC = () => {
                       {table.getRowModel().rows.length === 0 ? (
                         <tr>
                           <td colSpan={columns.length} className="px-4 py-8 text-center text-muted-foreground">
-                            {showWatchlistOnly 
+                            {searchQuery || showWatchlistOnly 
                               ? 'No matching stocks found' 
                               : 'No stocks available'}
                           </td>

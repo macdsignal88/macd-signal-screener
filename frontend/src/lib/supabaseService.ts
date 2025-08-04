@@ -598,16 +598,43 @@ export const fetchWatchlistStocksFromSupabase = async (
   page: number = 0,
   pageSize: number = 20,
   sortConfig?: SortConfig,
-  side: 'buy' | 'sell' = 'buy'
+  side: 'buy' | 'sell' = 'buy',
+  searchQuery?: string
 ): Promise<{ data: SingleStockWithMacdHistory[]; total: number; uniqueSymbolCount: number }> => {
   try {
     if (!watchlistSymbols.length) return { data: [], total: 0, uniqueSymbolCount: 0 };
 
-    const latestSignals = await getWatchlistSignals(watchlistSymbols, assetType, undefined, side);
+    // Filter watchlist symbols by search query if provided
+    let filteredWatchlistSymbols = watchlistSymbols;
+    if (searchQuery) {
+      const searchTerms = searchQuery.toLowerCase().split(' ').filter(term => term.length > 0);
+      
+      // Get all symbols that match the company names in the search terms
+      const matchingSymbols = new Set<string>();
+      const mappingDir = mappingDirectory as MappingDirectory;
+      for (const category in mappingDir) {
+        for (const [symbol, name] of Object.entries(mappingDir[category])) {
+          if (searchTerms.some(term => name.toLowerCase().includes(term))) {
+            matchingSymbols.add(symbol);
+          }
+        }
+      }
+
+      // Filter watchlist symbols by search terms
+      filteredWatchlistSymbols = watchlistSymbols.filter(symbol => {
+        const symbolMatches = searchTerms.some(term => symbol.toLowerCase().includes(term));
+        const nameMatches = matchingSymbols.has(symbol);
+        return symbolMatches || nameMatches;
+      });
+    }
+
+    if (!filteredWatchlistSymbols.length) return { data: [], total: 0, uniqueSymbolCount: 0 };
+
+    const latestSignals = await getWatchlistSignals(filteredWatchlistSymbols, assetType, undefined, side);
 
     const latestBySymbol = new Map(
       latestSignals
-        .filter(s => watchlistSymbols.includes(s.symbol))
+        .filter(s => filteredWatchlistSymbols.includes(s.symbol))
         .map(s => [s.symbol, s])
     );
 
