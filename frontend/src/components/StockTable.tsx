@@ -365,6 +365,7 @@ export const StockTableComponent: React.FC = () => {
   const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
   const [stocks, setStocks] = useState<SingleStockWithMacdHistory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [selectedTimeFrame, setSelectedTimeFrame] = useState<TimeFrame>('1d');
   const [isUsingCache, setIsUsingCache] = useState(false);
@@ -375,6 +376,9 @@ export const StockTableComponent: React.FC = () => {
   
   // Use ref to track search input value
   const searchInputRef = useRef<HTMLInputElement>(null);
+  
+  // Track if component has mounted to prevent initial load triggers
+  const hasMounted = useRef(false);
   
   // Get sorted timeframes for display
   const sortedSelectedTimeframes = useMemo(() =>
@@ -600,16 +604,33 @@ export const StockTableComponent: React.FC = () => {
   // Asset group options from mappingDirectory
   const assetGroupOptions = useMemo(() => Object.keys(mappingDirectory), []);
 
-  // Update when watchlist filter changes
+  // Initial load effect - only run once on mount
   useEffect(() => {
-    if (showWatchlistOnly) {
+    const performInitialLoad = async () => {
+      setInitialLoading(true);
+      try {
+        await loadStocks();
+      } finally {
+        setInitialLoading(false);
+        hasMounted.current = true;
+      }
+    };
+
+    performInitialLoad();
+  }, []); // Empty dependency array - only run on mount
+
+  // Update when watchlist filter changes (only after initial load)
+  useEffect(() => {
+    if (hasMounted.current && showWatchlistOnly) {
       loadStocks();
     }
   }, [loadStocks, showWatchlistOnly]);
 
-  // Update when other filters change
+  // Update when other filters change (only after initial load)
   useEffect(() => {
-    loadStocks();
+    if (hasMounted.current) {
+      loadStocks();
+    }
   }, [loadStocks, selectedAssetGroup, sorting, selectedTimeframes, macdDays, priceChartDays, enabledSignals, signalPersistenceDays]);
 
   // Calculate total pages
@@ -617,6 +638,23 @@ export const StockTableComponent: React.FC = () => {
     if (showWatchlistOnly) return 1;
     return Math.max(1, Math.ceil(uniqueSymbolCount  / pageSize));
   }, [uniqueSymbolCount , pageSize, showWatchlistOnly]);
+
+  // Update row rendering with proper types
+  const renderRow = useCallback((row: Row<SingleStockWithMacdHistory>) => (
+    <tr
+      key={row.id}
+      className="stock-row hover:bg-muted/20 transition-colors"
+    >
+      {row.getVisibleCells().map(cell => (
+        <td
+          key={cell.id}
+          className="px-4 py-3"
+        >
+          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+        </td>
+      ))}
+    </tr>
+  ), []);
 
   const handleRefresh = () => {
     clearCache(); // Clear cache before refreshing
@@ -902,22 +940,32 @@ export const StockTableComponent: React.FC = () => {
     getSortedRowModel: getSortedRowModel(),
   });
 
-  // Update row rendering with proper types
-  const renderRow = useCallback((row: Row<SingleStockWithMacdHistory>) => (
-    <tr
-      key={row.id}
-      className="stock-row hover:bg-muted/20 transition-colors"
-    >
-      {row.getVisibleCells().map(cell => (
-        <td
-          key={cell.id}
-          className="px-4 py-3"
-        >
-          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+  // Skeleton loading component
+  const SkeletonRow = () => (
+    <tr className="animate-pulse">
+      <td className="px-4 py-3">
+        <div className="h-4 w-16 bg-muted/50 rounded"></div>
+      </td>
+      <td className="px-4 py-3">
+        <div className="h-4 w-24 bg-muted/50 rounded"></div>
+        <div className="h-3 w-32 bg-muted/30 rounded mt-1"></div>
+      </td>
+      <td className="px-4 py-3">
+        <div className="h-4 w-20 bg-muted/50 rounded"></div>
+        <div className="h-3 w-16 bg-muted/30 rounded mt-1"></div>
+      </td>
+      {sortedSelectedTimeframes.map(timeFrame => (
+        <td key={timeFrame} className="px-4 py-3">
+          <div className="flex flex-wrap justify-center gap-1">
+            {[1, 2, 3, 4, 5].map(i => (
+              <div key={i} className="h-3 w-3 bg-muted/50 rounded"></div>
+            ))}
+          </div>
+          <div className="h-3 w-8 bg-muted/30 rounded mt-1 mx-auto"></div>
         </td>
       ))}
     </tr>
-  ), []);
+  );
 
   // Ensure we return valid JSX
   return (
@@ -1035,13 +1083,21 @@ export const StockTableComponent: React.FC = () => {
           </div>
 
           <div className="glass-card rounded-lg overflow-hidden mt-4">
-            {loading ? (
+            {initialLoading ? (
               <div className="p-8 flex flex-col items-center justify-center">
-                <Progress value={30} className="w-64 animate-pulse" />
-                <p className="mt-4 text-sm text-muted-foreground">Loading stock data...</p>
+                <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
+                <h3 className="text-lg font-semibold mb-2">Loading Stock Data</h3>
+                <p className="text-sm text-muted-foreground text-center max-w-md">
+                  Fetching the latest MACD signals and stock information. This may take a few moments on first load.
+                </p>
+                <Progress value={30} className="w-64 mt-4 animate-pulse" />
               </div>
-            ) : (
-              <>
+            ) : loading ? (
+              <div className="p-4">
+                <div className="flex items-center justify-center mb-4">
+                  <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mr-2"></div>
+                  <span className="text-sm text-muted-foreground">Updating data...</span>
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full divide-y divide-border">
                     <thead className="bg-muted/30">
@@ -1064,6 +1120,38 @@ export const StockTableComponent: React.FC = () => {
                         </tr>
                       ))}
                     </thead>
+                    <tbody className="bg-background divide-y divide-border">
+                      {Array.from({ length: 10 }).map((_, index) => (
+                        <SkeletonRow key={index} />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                                      <table className="w-full divide-y divide-border">
+                      <thead className="bg-muted/30">
+                        {table.getHeaderGroups().map(headerGroup => (
+                          <tr key={headerGroup.id}>
+                            {headerGroup.headers.map(header => (
+                              <th
+                                key={header.id}
+                                className="px-2 sm:px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
+                                style={{ width: header.getSize() }}
+                              >
+                                {header.isPlaceholder
+                                  ? null
+                                  : flexRender(
+                                      header.column.columnDef.header,
+                                      header.getContext()
+                                    )}
+                              </th>
+                            ))}
+                          </tr>
+                        ))}
+                      </thead>
                     <tbody className="bg-background divide-y divide-border">
                       {table.getRowModel().rows.length === 0 ? (
                         <tr>
