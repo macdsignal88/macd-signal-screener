@@ -212,19 +212,14 @@ const getUniqueSymbolCount = async () => {
 // 3. Fetch latest daily signals
 const getLatestSignals = async (assetType?: string, searchQuery?: string, side: 'buy' | 'sell' = 'buy'): Promise<MacdSignal[]> => {
   try {
-    // Use a much smaller date range - just the last 7 days to prevent timeout
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const dateFilter = sevenDaysAgo.toISOString().split('T')[0];
-    
-    console.log('Fetching signals for date range:', dateFilter, 'to now, side:', side);
+    console.log('Fetching all available signals for side:', side);
     
     let query = supabase
       .from('macd_signals')
       .select('*')
       .eq('side', side)
-      .gte('date', dateFilter) // Only last 7 days
       .order('date', { ascending: false })
-      .limit(500); // Reduced limit to prevent timeout
+      .limit(1000); // Increased limit to get more signals
 
     // Apply asset type filter if provided
     if (assetType) {
@@ -350,11 +345,7 @@ const paginateSymbols = (symbols: string[], page: number, pageSize: number) => {
 // 6. Fetch all timeframes data
 const getAllTimeframesData = async (symbols: string[], side: 'buy' | 'sell' = 'buy') => {
   try {
-    // Use a smaller date range for timeframe data too
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const dateFilter = sevenDaysAgo.toISOString().split('T')[0];
-    
-    console.log('Fetching timeframe data for symbols:', symbols.length, 'date range:', dateFilter, 'to now, side:', side);
+    console.log('Fetching timeframe data for symbols:', symbols.length, 'side:', side);
     
     const { data, error } = await supabase
       .from('macd_signals')
@@ -362,9 +353,8 @@ const getAllTimeframesData = async (symbols: string[], side: 'buy' | 'sell' = 'b
       .in('symbol', symbols)
       .in('timeframe', TIMEFRAMES)
       .eq('side', side)
-      .gte('date', dateFilter) // Only last 7 days
       .order('date', { ascending: false })
-      .limit(2000); // Reduced limit to prevent timeout
+      .limit(5000); // Increased limit to get more timeframe data
 
     if (error) {
       console.error('Error fetching timeframes data:', error);
@@ -379,14 +369,10 @@ const getAllTimeframesData = async (symbols: string[], side: 'buy' | 'sell' = 'b
   }
 };
 
-// 7. Fetch historical data (30 days max to prevent timeout)
+// 7. Fetch historical data
 const getHistoricalData = async (symbols: string[], side: 'buy' | 'sell' = 'buy') => {
   try {
-    // Use a smaller date range for historical data
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const dateFilter = thirtyDaysAgo.toISOString().split('T')[0];
-    
-    console.log('Fetching historical data for symbols:', symbols.length, 'date range:', dateFilter, 'to now, side:', side);
+    console.log('Fetching historical data for symbols:', symbols.length, 'side:', side);
     
     const allData = await Promise.all(
       symbols.map(async (symbol) => {
@@ -395,9 +381,8 @@ const getHistoricalData = async (symbols: string[], side: 'buy' | 'sell' = 'buy'
           .select('*')
           .eq('symbol', symbol)
           .eq('side', side)
-          .gte('date', dateFilter) // Only last 30 days
           .order('date', { ascending: false })
-          .limit(100); // Limit per symbol to prevent timeout
+          .limit(500); // Increased limit per symbol to get more historical data
 
         if (error) {
           console.error(`Error fetching historical data for ${symbol}:`, error);
@@ -539,11 +524,9 @@ export const fetchStocksPageFromSupabase = async (
     // Get latest signals with search filter
     const latestSignals = await getLatestSignals(assetType, searchQuery, side);
     
-    // If no signals returned, try with an even smaller date range
+    // If no signals returned, return empty data
     if (!latestSignals || latestSignals.length === 0) {
-      console.log('No signals returned, trying with smaller date range...');
-      // This would require modifying getLatestSignals to accept a date range parameter
-      // For now, we'll return empty data
+      console.log('No signals found for the given criteria');
       return { data: [], total: 0, uniqueSymbolCount: 0 };
     }
     
