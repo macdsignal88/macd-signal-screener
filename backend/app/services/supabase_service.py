@@ -36,14 +36,17 @@ class SupabaseService:
                 print(f"❌ Error inserting batch {i//batch_size + 1}: {str(e)}")
 
 
-    async def get_latest_signal_date(self) -> str:
+    async def get_latest_signal_date(self, symbol: str = None, timeframe: str = None) -> str:
         """Get the latest signal date from the database"""
         try:
-            response = self.client.table('macd_signals') \
-                .select('created_at') \
-                .order('created_at', desc=True) \
-                .limit(1) \
-                .execute()
+            query = self.client.table('macd_signals').select('created_at')
+            
+            if symbol:
+                query = query.eq('symbol', symbol)
+            if timeframe:
+                query = query.eq('timeframe', timeframe)
+                
+            response = query.order('created_at', desc=True).limit(1).execute()
             
             if response.data and len(response.data) > 0:
                 return response.data[0]['created_at']

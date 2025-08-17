@@ -60,21 +60,19 @@ def should_run_today(config, today):
         return is_last_day_of_month(today)
     return False
 
-sem = asyncio.Semaphore(10)  # Throttle concurrency to 10
-
-async def fetch_with_retry(symbol, interval_config, session):
+async def fetch_with_retry(symbol, interval_config, session, semaphore):
     retries = 3
     delay = 1
 
     for attempt in range(retries):
-        async with sem:
+        async with semaphore:
             try:
-                result = await batch_signal_processor.process_symbol(
-                    symbol=symbol,
+                # Create a single-symbol list and use process_symbols
+                result = await batch_signal_processor.process_symbols(
+                    symbols=[symbol],
                     period=interval_config['period'],
                     interval=interval_config['interval'],
-                    asset_type=asset_types.get(symbol),
-                    session=session
+                    asset_types={symbol: asset_types.get(symbol, 'unknown')}
                 )
                 return symbol, result
             except Exception as e:
@@ -89,8 +87,11 @@ async def process_interval(interval_config):
     logger.info(f"Processing interval: {interval_config['interval']}")
     failed_symbols = {}
 
+    # Create semaphore in the same event loop context
+    semaphore = asyncio.Semaphore(10)  # Throttle concurrency to 10
+
     async with aiohttp.ClientSession() as session:
-        tasks = [fetch_with_retry(symbol, interval_config, session) for symbol in symbols]
+        tasks = [fetch_with_retry(symbol, interval_config, session, semaphore) for symbol in symbols]
         results = await asyncio.gather(*tasks)
 
     signals_by_symbol = {}
